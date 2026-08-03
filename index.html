@@ -128,9 +128,36 @@
   #thumbs canvas {
     image-rendering: pixelated; background: var(--panel2);
     border: 1px solid var(--line); border-radius: 4px; height: 62px; width: auto;
+    cursor: pointer; transition: border-color .12s;
   }
+  #thumbs figure.sel canvas { border-color: var(--accent); }
+  #thumbs figure:hover canvas { border-color: #4a515c; }
   #thumbs .lbl { color: var(--dim); font-size: 10px; text-align: center; }
+  #thumbs figure.sel .lbl { color: var(--accent); }
+  #thumbs .off { color: var(--accent2); font-size: 9px; text-align: center; font-variant-numeric: tabular-nums; }
   #thumbs figure { margin: 0; }
+
+  /* ── align ── */
+  .aligngrid { display: grid; grid-template-columns: 1fr 190px; gap: 12px; align-items: start; }
+  @media (max-width: 700px) { .aligngrid { grid-template-columns: 1fr; } }
+  #alignWrap {
+    background: var(--panel2); border-radius: 6px; padding: 10px;
+    display: flex; align-items: center; justify-content: center; min-height: 220px; overflow: auto;
+  }
+  #alignCv { image-rendering: pixelated; display: block; cursor: grab; touch-action: none; }
+  #alignCv.drag { cursor: grabbing; }
+  #alignCv:focus { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .nudge { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; }
+  .nudge button { padding: 5px 0; font-size: 13px; line-height: 1; }
+  .nudge .sp { visibility: hidden; }
+  .offreadout {
+    text-align: center; font-variant-numeric: tabular-nums; font-size: 12px;
+    color: var(--accent2); padding: 5px; background: var(--panel2); border-radius: 4px;
+  }
+  select {
+    width: 100%; background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 4px; padding: 4px 6px; font: inherit;
+  }
 
   .msg { padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px; display: none; }
   .msg.err { display: block; background: #ff4f4f1a; border: 1px solid #ff4f4f55; color: #ff9a9a; }
@@ -209,6 +236,22 @@
     </div>
 
     <div class="panel">
+      <h2>Viewport &mdash; what gets exported</h2>
+      <div class="row">
+        <label style="flex:0 0 30px">X</label><input type="number" id="cropX" value="0">
+        <label style="flex:0 0 30px;text-align:right">Y</label><input type="number" id="cropY" value="0">
+      </div>
+      <div class="row">
+        <label style="flex:0 0 30px">W</label><input type="number" id="cropW" value="0" min="1">
+        <label style="flex:0 0 30px;text-align:right">H</label><input type="number" id="cropH" value="0" min="1">
+      </div>
+      <div class="offreadout" id="cropLbl">&mdash;</div>
+      <button id="fitCrop" style="margin-top:8px">Fit to content</button>
+      <button id="fullCrop">Reset to full cell</button>
+      <div class="hint">Exports this window onto the cell instead of the whole thing &mdash; trim dead space or frame head&#8209;and&#8209;shoulders. Outlined in teal on the align canvas.</div>
+    </div>
+
+    <div class="panel">
       <h2>Export</h2>
       <button class="primary" id="expPng" disabled>Export PNG sequence (.zip)</button>
       <div class="hint">True transparency. Import into Premiere / Resolve / CapCut as an image sequence.</div>
@@ -238,8 +281,59 @@
     </div>
 
     <div class="panel" style="margin-top:12px">
-      <h2>Sliced frames &mdash; quietest to loudest</h2>
+      <h2>Sliced frames &mdash; quietest to loudest &middot; click to align</h2>
       <div id="thumbs"><div class="empty">No sheet loaded.</div></div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h2>Align &mdash; onion skin</h2>
+      <div class="aligngrid">
+        <div id="alignWrap">
+          <div class="empty" id="alignEmpty">Pick a frame above to line it up against the reference.</div>
+          <canvas id="alignCv" tabindex="0" hidden></canvas>
+        </div>
+        <div>
+          <div class="row" style="margin-top:0">
+            <label style="flex:0 0 62px">Frame</label>
+            <button id="prevFrame" style="width:auto;padding:4px 9px">&lsaquo;</button>
+            <span class="val" id="selLbl" style="flex:1;text-align:center">&mdash;</span>
+            <button id="nextFrame" style="width:auto;padding:4px 9px">&rsaquo;</button>
+          </div>
+          <div class="row">
+            <label style="flex:0 0 62px">Ghost</label>
+            <select id="refMode">
+              <option value="0">Frame 0</option>
+              <option value="prev">Previous</option>
+            </select>
+          </div>
+          <div class="row">
+            <label style="flex:0 0 62px">View</label>
+            <select id="onionMode">
+              <option value="ghost">Ghost</option>
+              <option value="diff">Difference</option>
+            </select>
+          </div>
+          <div class="row">
+            <label style="flex:0 0 62px">Opacity</label>
+            <input type="range" id="onionOp" min="10" max="90" step="5" value="45">
+            <span class="val" id="onionOpV">45</span>
+          </div>
+
+          <div class="nudge">
+            <button class="sp"></button><button data-dx="0" data-dy="-1">&uarr;</button><button class="sp"></button>
+            <button data-dx="-1" data-dy="0">&larr;</button>
+            <button id="resetOne" title="Reset this frame">&#8226;</button>
+            <button data-dx="1" data-dy="0">&rarr;</button>
+            <button class="sp"></button><button data-dx="0" data-dy="1">&darr;</button><button class="sp"></button>
+          </div>
+          <div class="offreadout" id="offLbl">dx 0 &nbsp; dy 0</div>
+
+          <button id="autoOne" style="margin-top:8px">Auto-align this frame</button>
+          <button id="autoAll">Auto-align all</button>
+          <button id="resetAll">Reset all offsets</button>
+          <div class="hint">Drag the sprite, or use arrow keys once the canvas is focused. Offsets are whole pixels and apply to the preview and every export.</div>
+        </div>
+      </div>
     </div>
   </div>
 </main>
@@ -261,6 +355,10 @@ const S = {
   rms: null,           // Float32Array, one normalized 0-100 value per video frame
   mapping: null,       // Int16Array, sprite index per video frame
   fps: 30,
+  offsets: [],         // [{dx,dy}] per sprite, whole pixels — manual alignment
+  sel: 0,              // sprite currently being aligned
+  crop: null,          // {x,y,w,h} in sprite px — the exported viewport
+  cellW: 0, cellH: 0,
 };
 
 const DB_FLOOR = -60;   // anything quieter than this is treated as pure silence
@@ -299,9 +397,21 @@ function sliceSheet() {
       S.slices.push(cv);
     }
   }
+  // keep alignment across re-keying; only reset when the sheet really changed
+  if (!S.offsets || S.offsets.length !== S.slices.length) {
+    S.offsets = S.slices.map(() => ({ dx: 0, dy: 0 }));
+    S.sel = 0;
+  }
+  if (!S.crop || S.cellW !== cw || S.cellH !== ch) {
+    S.cellW = cw; S.cellH = ch;
+    S.crop = { x: 0, y: 0, w: cw, h: ch };
+    syncCropInputs();
+  }
   clearMsg("input");
   applyKey();
 }
+
+const off = i => (S.offsets[i] || { dx: 0, dy: 0 });
 
 function applyKey() {
   if (!S.slices.length) return;
@@ -330,7 +440,10 @@ function applyKey() {
     return cv;
   });
 
+  idCache.clear();                 // keyed pixels changed, so cached ones are stale
+  S.sel = clamp(S.sel, 0, S.keyed.length - 1);
   drawThumbs();
+  renderAlign();
   $("stSprites").textContent = S.keyed.length;
   remap();
   resizePreview();
@@ -342,15 +455,21 @@ function drawThumbs() {
   box.innerHTML = "";
   S.keyed.forEach((cv, i) => {
     const fig = document.createElement("figure");
+    if (i === S.sel) fig.className = "sel";
     const c = document.createElement("canvas");
     c.width = cv.width; c.height = cv.height;
     const x = c.getContext("2d");
     x.imageSmoothingEnabled = false;
-    x.drawImage(cv, 0, 0);
+    const o = off(i);
+    x.drawImage(cv, o.dx, o.dy);       // thumbs show the aligned result
     const lbl = document.createElement("div");
     lbl.className = "lbl";
     lbl.textContent = i === 0 ? "0 · closed" : i;
-    fig.append(c, lbl);
+    const ol = document.createElement("div");
+    ol.className = "off";
+    ol.textContent = (o.dx || o.dy) ? `${o.dx >= 0 ? "+" : ""}${o.dx},${o.dy >= 0 ? "+" : ""}${o.dy}` : " ";
+    fig.append(c, lbl, ol);
+    fig.addEventListener("click", () => selectFrame(i));
     box.append(fig);
   });
 }
@@ -491,9 +610,67 @@ function remap() {
    ══════════════════════════════════════════════════════════ */
 
 function spriteSize() {
-  if (!S.keyed.length) return [0, 0];
+  if (!S.keyed.length || !S.crop) return [0, 0];
   const s = parseInt($("scale").value, 10);
-  return [S.keyed[0].width * s, S.keyed[0].height * s];
+  return [S.crop.w * s, S.crop.h * s];
+}
+
+/* ── viewport / crop ─────────────────────────────────────
+   The exported frame is this window onto the cell, not the whole
+   cell — so you can trim dead space or frame head-and-shoulders,
+   and every export follows it. */
+
+function syncCropInputs() {
+  if (!S.crop) return;
+  $("cropX").value = S.crop.x; $("cropY").value = S.crop.y;
+  $("cropW").value = S.crop.w; $("cropH").value = S.crop.h;
+  $("cropLbl").textContent = `${S.crop.w}×${S.crop.h} px`;
+}
+
+function readCropInputs() {
+  if (!S.crop) return;
+  const cw = S.cellW, ch = S.cellH;
+  const x = clamp(parseInt($("cropX").value, 10) || 0, -cw, cw);
+  const y = clamp(parseInt($("cropY").value, 10) || 0, -ch, ch);
+  const w = clamp(parseInt($("cropW").value, 10) || 1, 1, cw * 3);
+  const h = clamp(parseInt($("cropH").value, 10) || 1, 1, ch * 3);
+  S.crop = { x, y, w, h };
+  syncCropInputs();
+  resizePreview();
+  renderAlign();
+  drawFrameAt(currentFrame());
+}
+
+/* Union bounding box of every frame's opaque pixels, offsets applied.
+   Trims the dead space the sheet came with without clipping any pose. */
+function fitCropToContent(pad) {
+  if (!S.keyed.length) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < S.keyed.length; i++) {
+    const d = pixelsOf(i), o = off(i);
+    const w = d.width, h = d.height, a = d.data;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (a[(y * w + x) * 4 + 3] > 8) {
+          const px = x + o.dx, py = y + o.dy;
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+        }
+      }
+    }
+  }
+  if (minX === Infinity) return msg("input", "err", "Every frame is fully transparent — check your key color and tolerance.");
+  S.crop = {
+    x: Math.floor(minX - pad), y: Math.floor(minY - pad),
+    w: Math.ceil(maxX - minX + 1 + pad * 2), h: Math.ceil(maxY - minY + 1 + pad * 2),
+  };
+  syncCropInputs();
+  resizePreview();
+  renderAlign();
+  drawFrameAt(currentFrame());
+  msg("input", "ok", `Viewport fitted to ${S.crop.w}×${S.crop.h}px.`);
 }
 
 function resizePreview() {
@@ -507,14 +684,16 @@ function resizePreview() {
 }
 
 function drawFrameAt(f) {
-  if (!S.keyed.length) return;
+  if (!S.keyed.length || !S.crop) return;
   const cv = $("preview");
   const x = cv.getContext("2d");
   x.imageSmoothingEnabled = false;              // nearest neighbour only
   x.clearRect(0, 0, cv.width, cv.height);
   const idx = S.mapping ? S.mapping[clamp(f, 0, S.mapping.length - 1)] : 0;
-  const spr = S.keyed[clamp(idx, 0, S.keyed.length - 1)];
-  x.drawImage(spr, 0, 0, cv.width, cv.height);
+  const i = clamp(idx, 0, S.keyed.length - 1);
+  const spr = S.keyed[i];
+  const s = parseInt($("scale").value, 10), o = off(i), c = S.crop;
+  x.drawImage(spr, (o.dx - c.x) * s, (o.dy - c.y) * s, spr.width * s, spr.height * s);
   $("frameLbl").textContent = S.mapping ? `frame ${f} · sprite ${idx}` : "";
 }
 
@@ -572,6 +751,169 @@ function tick() {
 }
 function startLoop() { if (!raf) tick(); }
 function stopLoop() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+
+/* ══════════════════════════════════════════════════════════
+   4b. alignment — onion skin
+   Image models can't hold a sprite pixel-identical across cells,
+   so cells come back shifted. Nudge them here instead of
+   round-tripping through a pixel editor.
+   ══════════════════════════════════════════════════════════ */
+
+let alignZoom = 4;
+
+function refIndexFor(i) {
+  if (i <= 0) return -1;
+  return $("refMode").value === "prev" ? i - 1 : 0;
+}
+
+function selectFrame(i) {
+  S.sel = clamp(i, 0, S.keyed.length - 1);
+  drawThumbs();
+  renderAlign();
+}
+
+function renderAlign() {
+  const cv = $("alignCv");
+  if (!S.keyed.length) { cv.hidden = true; $("alignEmpty").style.display = ""; return; }
+
+  const cur = S.keyed[S.sel];
+  const sw = cur.width, sh = cur.height;
+  alignZoom = Math.max(1, Math.floor(Math.min(360 / sw, 230 / sh))) || 1;
+
+  cv.hidden = false;
+  $("alignEmpty").style.display = "none";
+  cv.width = sw * alignZoom;
+  cv.height = sh * alignZoom;
+
+  const x = cv.getContext("2d");
+  x.imageSmoothingEnabled = false;
+  x.fillStyle = "#15181d";
+  x.fillRect(0, 0, cv.width, cv.height);
+
+  const ri = refIndexFor(S.sel);
+  const o = off(S.sel);
+  const mode = $("onionMode").value;
+  const opa = parseInt($("onionOp").value, 10) / 100;
+
+  if (ri >= 0) {
+    const ro = off(ri);
+    x.globalAlpha = mode === "diff" ? 1 : opa;
+    x.drawImage(S.keyed[ri], ro.dx * alignZoom, ro.dy * alignZoom, cv.width, cv.height);
+    x.globalAlpha = 1;
+  }
+
+  if (mode === "diff" && ri >= 0) x.globalCompositeOperation = "difference";
+  x.drawImage(cur, o.dx * alignZoom, o.dy * alignZoom, cv.width, cv.height);
+  x.globalCompositeOperation = "source-over";
+
+  // centre guides — easier to spot a body that drifted sideways
+  x.strokeStyle = "#ffffff14"; x.lineWidth = 1;
+  x.beginPath();
+  x.moveTo(cv.width / 2, 0); x.lineTo(cv.width / 2, cv.height);
+  x.moveTo(0, cv.height / 2); x.lineTo(cv.width, cv.height / 2);
+  x.stroke();
+
+  // the exported viewport: dim what falls outside it
+  const c = S.crop;
+  if (c && (c.x !== 0 || c.y !== 0 || c.w !== sw || c.h !== sh)) {
+    const rx = c.x * alignZoom, ry = c.y * alignZoom,
+          rw = c.w * alignZoom, rh = c.h * alignZoom;
+    x.save();
+    x.beginPath();
+    x.rect(0, 0, cv.width, cv.height);
+    x.rect(rx, ry, rw, rh);
+    x.fillStyle = "#0b0d10aa";
+    x.fill("evenodd");
+    x.restore();
+    x.strokeStyle = "#4fd1c5"; x.lineWidth = 1;
+    x.strokeRect(rx + .5, ry + .5, rw - 1, rh - 1);
+  }
+
+  $("selLbl").textContent = ri < 0 ? `${S.sel} · anchor` : `${S.sel} vs ${ri}`;
+  $("offLbl").innerHTML = `dx ${o.dx} &nbsp; dy ${o.dy}`;
+  const anchor = ri < 0;
+  ["autoOne", "resetOne"].forEach(id => $(id).disabled = anchor);
+  document.querySelectorAll(".nudge button[data-dx]").forEach(b => b.disabled = anchor);
+}
+
+function nudge(dx, dy) {
+  if (refIndexFor(S.sel) < 0) return;      // frame 0 is the anchor
+  const o = off(S.sel);
+  o.dx += dx; o.dy += dy;
+  afterOffsetChange();
+}
+
+function afterOffsetChange() {
+  drawThumbs();
+  renderAlign();
+  drawFrameAt(currentFrame());
+}
+
+/* cached pixels for auto-align, dropped whenever keying changes */
+let idCache = new Map();
+function pixelsOf(i) {
+  if (idCache.has(i)) return idCache.get(i);
+  const cv = S.keyed[i];
+  const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height);
+  idCache.set(i, d);
+  return d;
+}
+
+/* Search a small window for the shift that best matches the reference.
+   Alpha is weighted heavily — the silhouette is what has to line up, and
+   the mouth is the one part that's legitimately allowed to differ. */
+function bestShift(curI, refI, R) {
+  const A = pixelsOf(curI), B = pixelsOf(refI);
+  const w = A.width, h = A.height, a = A.data, b = B.data;
+  let best = { rx: 0, ry: 0, score: Infinity };
+
+  for (let ry = -R; ry <= R; ry++) {
+    for (let rx = -R; rx <= R; rx++) {
+      let score = 0;
+      // every pixel: sub-sampling aliases away odd-numbered shifts and
+      // silently returns an off-by-one. ~30ms per frame, so it doesn't matter.
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const ai = (y * w + x) * 4;
+          const bx = x + rx, by = y + ry;
+          let br = 0, bg = 0, bb = 0, ba = 0;
+          if (bx >= 0 && bx < w && by >= 0 && by < h) {
+            const bi = (by * w + bx) * 4;
+            br = b[bi]; bg = b[bi+1]; bb = b[bi+2]; ba = b[bi+3];
+          }
+          const da = a[ai+3] - ba;
+          score += da * da * 3;
+          if (a[ai+3] > 8 && ba > 8) {
+            const dr = a[ai] - br, dg = a[ai+1] - bg, db = a[ai+2] - bb;
+            score += dr*dr + dg*dg + db*db;
+          }
+        }
+      }
+      // tie-break toward no movement, so a flat match doesn't drift
+      score += (Math.abs(rx) + Math.abs(ry)) * 0.5;
+      if (score < best.score) best = { rx, ry, score };
+    }
+  }
+  return best;
+}
+
+function autoAlignOne(i, quiet) {
+  const ri = refIndexFor(i);
+  if (ri < 0) return;
+  const R = Math.max(4, Math.min(12, Math.floor(S.keyed[i].width / 4)));
+  const { rx, ry } = bestShift(i, ri, R);
+  const ro = off(ri);
+  S.offsets[i] = { dx: ro.dx + rx, dy: ro.dy + ry };   // relative to the aligned reference
+  if (!quiet) { afterOffsetChange(); msg("input", "ok", `Frame ${i} shifted ${rx >= 0 ? "+" : ""}${rx}, ${ry >= 0 ? "+" : ""}${ry}.`); }
+}
+
+function autoAlignAll() {
+  if (S.keyed.length < 2) return;
+  for (let i = 1; i < S.keyed.length; i++) autoAlignOne(i, true);   // chains when ref = previous
+  afterOffsetChange();
+  const moved = S.offsets.filter(o => o.dx || o.dy).length;
+  msg("input", "ok", moved ? `Aligned ${moved} frame${moved > 1 ? "s" : ""}. Scrub through to check.` : "Everything already lined up.");
+}
 
 /* ══════════════════════════════════════════════════════════
    5. ZIP writer — STORE (no compression). PNGs are already
@@ -689,12 +1031,14 @@ async function exportPNG() {
   // Only N distinct images exist, so render each once and reuse the bytes for
   // every frame that points at it. Turns thousands of encodes into a handful.
   const unique = [];
-  for (const spr of S.keyed) {
+  const sc = parseInt($("scale").value, 10);
+  for (let i = 0; i < S.keyed.length; i++) {
+    const spr = S.keyed[i], o = off(i);
     const cv = document.createElement("canvas");
     cv.width = w; cv.height = h;
     const x = cv.getContext("2d");
     x.imageSmoothingEnabled = false;
-    x.drawImage(spr, 0, 0, w, h);
+    x.drawImage(spr, (o.dx - S.crop.x) * sc, (o.dy - S.crop.y) * sc, spr.width * sc, spr.height * sc);
     const blob = await new Promise(res => cv.toBlob(res, "image/png"));
     const bytes = new Uint8Array(await blob.arrayBuffer());
     unique.push({ bytes, crc: crc32(bytes) });
@@ -764,7 +1108,8 @@ async function exportWebM() {
     x.fillStyle = keyHex;                        // baked-in background, no alpha
     x.fillRect(0, 0, w, h);
     const idx = S.mapping[clamp(currentFrame(), 0, S.mapping.length - 1)];
-    x.drawImage(S.keyed[idx], 0, 0, w, h);
+    const sc = parseInt($("scale").value, 10), o = off(idx), spr = S.keyed[idx];
+    x.drawImage(spr, (o.dx - S.crop.x) * sc, (o.dy - S.crop.y) * sc, spr.width * sc, spr.height * sc);
     requestAnimationFrame(paint);
   };
 
@@ -796,9 +1141,12 @@ function demoSheet() {
   x.fillRect(0, 0, cv.width, cv.height);
 
   const mouths = [[8, 2], [8, 4], [10, 10], [14, 6]];  // [width, height] per frame
+  // deliberate drift on cells 1-3, exactly like a real generated sheet comes
+  // back — so the onion skin and auto-align have something to actually fix
+  const jitter = [[0, 0], [2, -1], [-3, 2], [1, 3]];
   for (let i = 0; i < N; i++) {
-    const ox = i * CW;
-    const px = (X, Y, W, H, col) => { x.fillStyle = col; x.fillRect(ox + X, Y, W, H); };
+    const ox = i * CW, jx = jitter[i][0], jy = jitter[i][1];
+    const px = (X, Y, W, H, col) => { x.fillStyle = col; x.fillRect(ox + X + jx, Y + jy, W, H); };
 
     px(14, 30, 20, 26, "#6b6f76");                   // body
     px(16, 56, 6, 6, "#5a5e64"); px(26, 56, 6, 6, "#5a5e64");  // feet
@@ -930,6 +1278,61 @@ wireDrop($("dropAudio"), "audio/*", async file => {
   const buf = await file.arrayBuffer();
   await loadAudioBuffer(buf, URL.createObjectURL(file));
   updateReady();
+});
+
+/* ── align wiring ── */
+$("prevFrame").addEventListener("click", () => selectFrame(S.sel - 1));
+$("nextFrame").addEventListener("click", () => selectFrame(S.sel + 1));
+$("refMode").addEventListener("change", renderAlign);
+$("onionMode").addEventListener("change", renderAlign);
+$("onionOp").addEventListener("input", () => { $("onionOpV").textContent = $("onionOp").value; renderAlign(); });
+document.querySelectorAll(".nudge button[data-dx]").forEach(b => {
+  b.addEventListener("click", () => nudge(+b.dataset.dx, +b.dataset.dy));
+});
+$("resetOne").addEventListener("click", () => { S.offsets[S.sel] = { dx: 0, dy: 0 }; afterOffsetChange(); });
+$("resetAll").addEventListener("click", () => { S.offsets = S.keyed.map(() => ({ dx: 0, dy: 0 })); afterOffsetChange(); });
+$("autoOne").addEventListener("click", () => autoAlignOne(S.sel, false));
+$("autoAll").addEventListener("click", autoAlignAll);
+
+/* drag the sprite directly — whole pixels only */
+(() => {
+  const cv = $("alignCv");
+  let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+  cv.addEventListener("pointerdown", e => {
+    if (refIndexFor(S.sel) < 0) return;
+    dragging = true; cv.classList.add("drag"); cv.setPointerCapture(e.pointerId);
+    sx = e.clientX; sy = e.clientY;
+    const o = off(S.sel); ox = o.dx; oy = o.dy;
+    cv.focus();
+  });
+  cv.addEventListener("pointermove", e => {
+    if (!dragging) return;
+    const r = cv.getBoundingClientRect();
+    const px = (cv.width / r.width) / alignZoom;     // css px -> sprite px
+    S.offsets[S.sel] = {
+      dx: ox + Math.round((e.clientX - sx) * px),
+      dy: oy + Math.round((e.clientY - sy) * px),
+    };
+    afterOffsetChange();
+  });
+  const end = e => { if (dragging) { dragging = false; cv.classList.remove("drag"); } };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+
+  cv.addEventListener("keydown", e => {
+    const step = e.shiftKey ? 4 : 1;
+    const map = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+    if (map[e.key]) { e.preventDefault(); nudge(map[e.key][0] * step, map[e.key][1] * step); }
+  });
+})();
+
+/* ── viewport wiring ── */
+["cropX", "cropY", "cropW", "cropH"].forEach(id =>
+  $(id).addEventListener("input", readCropInputs));
+$("fitCrop").addEventListener("click", () => fitCropToContent(1));
+$("fullCrop").addEventListener("click", () => {
+  S.crop = { x: 0, y: 0, w: S.cellW, h: S.cellH };
+  syncCropInputs(); resizePreview(); renderAlign(); drawFrameAt(currentFrame());
 });
 
 $("cols").addEventListener("input", () => { sliceSheet(); updateReady(); });
