@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>catsync</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1c1f25;
+    --panel2: #23272f;
+    --line: #2e333c;
+    --text: #e6e9ef;
+    --dim: #8b93a1;
+    --accent: #ff4fa3;
+    --accent2: #4fd1c5;
+    --warn: #f0b429;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.45 ui-sans-serif, -apple-system, "SF Pro Text", Segoe UI, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 15px; letter-spacing: .5px; }
+  header h1 span { color: var(--accent); }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header .spacer { flex: 1; }
+
+  main {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 14px;
+    padding: 14px 16px;
+    align-items: start;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .panel + .panel { margin-top: 12px; }
+  .panel h2 {
+    margin: 0 0 10px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--dim); font-weight: 600;
+  }
+
+  .drop {
+    border: 1.5px dashed var(--line);
+    border-radius: 6px;
+    padding: 14px 10px;
+    text-align: center;
+    color: var(--dim);
+    cursor: pointer;
+    transition: border-color .12s, color .12s, background .12s;
+    font-size: 12px;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); color: var(--text); background: #ff4fa30d; }
+  .drop.loaded { border-style: solid; border-color: var(--accent2); color: var(--accent2); }
+  .drop + .drop { margin-top: 8px; }
+
+  .row { display: flex; align-items: center; gap: 8px; margin: 9px 0; }
+  .row label { flex: 0 0 96px; color: var(--dim); font-size: 12px; }
+  .row .val { flex: 0 0 42px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+  input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
+  input[type=number] {
+    width: 100%; background: var(--panel2); border: 1px solid var(--line);
+    color: var(--text); border-radius: 4px; padding: 4px 6px; font: inherit;
+  }
+  input[type=color] {
+    width: 34px; height: 24px; padding: 0; border: 1px solid var(--line);
+    background: none; border-radius: 4px; cursor: pointer;
+  }
+  .checkrow { display: flex; align-items: center; gap: 7px; margin: 9px 0; color: var(--dim); }
+  .checkrow input { accent-color: var(--accent); }
+
+  button {
+    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--text); font: inherit; font-weight: 500;
+    cursor: pointer; transition: background .12s, border-color .12s;
+  }
+  button:hover:not(:disabled) { background: #2c313a; border-color: #3c434e; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #1a0a12; }
+  button.primary:hover:not(:disabled) { background: #ff69b0; border-color: #ff69b0; }
+  button + button { margin-top: 7px; }
+  .hint { color: var(--dim); font-size: 11px; margin-top: 5px; line-height: 1.4; }
+
+  .stage {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; display: flex; flex-direction: column; gap: 10px;
+  }
+  #previewWrap {
+    min-height: 300px; display: flex; align-items: center; justify-content: center;
+    background: var(--panel2); border-radius: 6px; padding: 12px; overflow: auto;
+  }
+  #preview { image-rendering: pixelated; display: block; max-width: 100%; }
+  #preview.checker {
+    background-image:
+      linear-gradient(45deg, #33383f 25%, transparent 25%),
+      linear-gradient(-45deg, #33383f 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #33383f 75%),
+      linear-gradient(-45deg, transparent 75%, #33383f 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  }
+  #wave { width: 100%; height: 84px; display: block; border-radius: 6px; background: var(--panel2); cursor: pointer; }
+
+  .transport { display: flex; align-items: center; gap: 10px; }
+  .transport button { width: auto; padding: 6px 16px; }
+  .transport .time { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 12px; }
+
+  .stats { display: flex; gap: 18px; flex-wrap: wrap; padding-top: 2px; }
+  .stat .k { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .6px; }
+  .stat .v { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+  #thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+  #thumbs canvas {
+    image-rendering: pixelated; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 4px; height: 62px; width: auto;
+  }
+  #thumbs .lbl { color: var(--dim); font-size: 10px; text-align: center; }
+  #thumbs figure { margin: 0; }
+
+  .msg { padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px; display: none; }
+  .msg.err { display: block; background: #ff4f4f1a; border: 1px solid #ff4f4f55; color: #ff9a9a; }
+  .msg.ok  { display: block; background: #4fd1c51a; border: 1px solid #4fd1c555; color: var(--accent2); }
+  .msg.work{ display: block; background: #f0b4291a; border: 1px solid #f0b42955; color: var(--warn); }
+  .empty { color: var(--dim); font-size: 12px; text-align: center; padding: 30px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>cat<span>sync</span></h1>
+  <div class="sub">sprite sheet + audio &rarr; lip&#8209;synced overlay</div>
+  <div class="spacer"></div>
+  <div class="sub" id="hdrNote">offline &middot; nothing leaves this machine</div>
+</header>
+
+<main>
+  <!-- ─────────── controls ─────────── -->
+  <div>
+    <div class="panel">
+      <h2>Input</h2>
+      <div class="drop" id="dropSheet">
+        <strong>Sprite sheet</strong><br>drag image or click
+      </div>
+      <div class="drop" id="dropAudio">
+        <strong>Audio</strong><br>drag WAV / MP3 or click
+      </div>
+      <div class="row" style="margin-top:12px">
+        <label>Columns</label><input type="number" id="cols" value="4" min="1" max="32">
+        <label style="flex:0 0 40px;text-align:right">Rows</label><input type="number" id="rows" value="1" min="1" max="32">
+      </div>
+      <button id="demoBtn" style="margin-top:6px">Load demo</button>
+      <div class="hint">Generates a throwaway sheet + clip so you can test the whole pipeline before you have real assets.</div>
+      <div class="msg" id="inputMsg"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Sync</h2>
+      <div class="row">
+        <label>FPS</label>
+        <input type="range" id="fps" min="12" max="60" step="1" value="30">
+        <span class="val" id="fpsV">30</span>
+      </div>
+      <div class="row">
+        <label>Silence thr.</label>
+        <input type="range" id="thr" min="0" max="60" step="1" value="8">
+        <span class="val" id="thrV">8</span>
+      </div>
+      <div class="hint" style="margin:-4px 0 8px">Auto-set from each new file's noise floor. It's a hard gate, so it can flip suddenly &mdash; nudge in small steps and watch <em>mouth&nbsp;closed</em>.</div>
+      <div class="row">
+        <label>Min hold</label>
+        <input type="range" id="hold" min="1" max="8" step="1" value="2">
+        <span class="val" id="holdV">2</span>
+      </div>
+      <div class="hint">Mouth strobing? Raise hold. Mouth never closing between sentences? Raise threshold.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Look</h2>
+      <div class="row">
+        <label>Key color</label>
+        <input type="color" id="key" value="#ff00ff">
+        <input type="range" id="tol" min="0" max="100" step="1" value="10" style="margin-left:6px">
+        <span class="val" id="tolV">10</span>
+      </div>
+      <div class="row">
+        <label>Scale</label>
+        <input type="range" id="scale" min="1" max="8" step="1" value="1">
+        <span class="val" id="scaleV">1&times;</span>
+      </div>
+      <div class="checkrow">
+        <input type="checkbox" id="checker" checked>
+        <label for="checker" style="flex:none">Show transparency</label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Export</h2>
+      <button class="primary" id="expPng" disabled>Export PNG sequence (.zip)</button>
+      <div class="hint">True transparency. Import into Premiere / Resolve / CapCut as an image sequence.</div>
+      <button id="expWebm" disabled style="margin-top:10px">Export WebM</button>
+      <div class="hint"><strong style="color:var(--warn)">No transparency.</strong> Browsers can't record an alpha channel, so the key color is baked in as a solid background &mdash; chroma&#8209;key it in your editor. Records in real time.</div>
+      <div class="msg" id="expMsg"></div>
+    </div>
+  </div>
+
+  <!-- ─────────── stage ─────────── -->
+  <div>
+    <div class="stage">
+      <div id="previewWrap"><div class="empty" id="emptyNote">Load a sprite sheet and an audio file, or hit <strong>Load demo</strong>.</div><canvas id="preview" hidden></canvas></div>
+      <canvas id="wave"></canvas>
+      <div class="transport">
+        <button id="playBtn" disabled>Play</button>
+        <span class="time" id="timeLbl">0.00 / 0.00 s</span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="time" id="frameLbl"></span>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">Duration</div><div class="v" id="stDur">&mdash;</div></div>
+        <div class="stat"><div class="k">Frames</div><div class="v" id="stFrames">&mdash;</div></div>
+        <div class="stat"><div class="k">Mouth closed</div><div class="v" id="stClosed">&mdash;</div></div>
+        <div class="stat"><div class="k">Sprites</div><div class="v" id="stSprites">&mdash;</div></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h2>Sliced frames &mdash; quietest to loudest</h2>
+      <div id="thumbs"><div class="empty">No sheet loaded.</div></div>
+    </div>
+  </div>
+</main>
+
+<audio id="audioEl" hidden></audio>
+
+<script>
+"use strict";
+
+/* ══════════════════════════════════════════════════════════
+   state
+   ══════════════════════════════════════════════════════════ */
+const S = {
+  sheetImg: null,      // HTMLImageElement / canvas of the raw sheet
+  slices: [],          // [canvas] raw cells, unkeyed
+  keyed: [],           // [canvas] cells with key color knocked to alpha 0
+  audioBuffer: null,   // decoded AudioBuffer
+  audioURL: null,
+  rms: null,           // Float32Array, one normalized 0-100 value per video frame
+  mapping: null,       // Int16Array, sprite index per video frame
+  fps: 30,
+};
+
+const DB_FLOOR = -60;   // anything quieter than this is treated as pure silence
+const HYST = 3;         // hysteresis margin, on the 0-100 loudness scale
+
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+/* ══════════════════════════════════════════════════════════
+   1. sprite sheet: load, slice, key
+   ══════════════════════════════════════════════════════════ */
+
+function sliceSheet() {
+  if (!S.sheetImg) return;
+  const cols = parseInt($("cols").value, 10);
+  const rows = parseInt($("rows").value, 10);
+  const W = S.sheetImg.width, H = S.sheetImg.height;
+
+  if (!cols || !rows || cols < 1 || rows < 1) return err("input", "Columns and rows must be at least 1.");
+  if (W % cols !== 0 || H % rows !== 0) {
+    return err("input",
+      `Sheet is ${W}×${H}px, which doesn't divide evenly by ${cols}×${rows}. ` +
+      `Cells would be ${(W/cols).toFixed(1)}×${(H/rows).toFixed(1)}px.`);
+  }
+  const cw = W / cols, ch = H / rows;
+  if (cols * rows < 2) return err("input", "Need at least 2 frames. Check your columns and rows.");
+
+  S.slices = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cv = document.createElement("canvas");
+      cv.width = cw; cv.height = ch;
+      const x = cv.getContext("2d");
+      x.imageSmoothingEnabled = false;
+      x.drawImage(S.sheetImg, c * cw, r * ch, cw, ch, 0, 0, cw, ch);
+      S.slices.push(cv);
+    }
+  }
+  clearMsg("input");
+  applyKey();
+}
+
+function applyKey() {
+  if (!S.slices.length) return;
+  const hex = $("key").value;
+  const kr = parseInt(hex.slice(1, 3), 16),
+        kg = parseInt(hex.slice(3, 5), 16),
+        kb = parseInt(hex.slice(5, 7), 16);
+  // tolerance 0-100 mapped onto squared RGB distance
+  const tol = parseInt($("tol").value, 10);
+  const maxDist = (tol / 100) * 441.673;      // 441.673 = sqrt(3*255^2)
+  const maxDist2 = maxDist * maxDist;
+
+  S.keyed = S.slices.map(src => {
+    const cv = document.createElement("canvas");
+    cv.width = src.width; cv.height = src.height;
+    const x = cv.getContext("2d");
+    x.drawImage(src, 0, 0);
+    const img = x.getImageData(0, 0, cv.width, cv.height);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const dr = d[i] - kr, dg = d[i+1] - kg, db = d[i+2] - kb;
+      // hard cutoff, no feathering — soft edges look wrong on pixel art
+      if (dr*dr + dg*dg + db*db <= maxDist2) { d[i+3] = 0; }
+    }
+    x.putImageData(img, 0, 0);
+    return cv;
+  });
+
+  drawThumbs();
+  $("stSprites").textContent = S.keyed.length;
+  remap();
+  resizePreview();
+  drawFrameAt(currentFrame());
+}
+
+function drawThumbs() {
+  const box = $("thumbs");
+  box.innerHTML = "";
+  S.keyed.forEach((cv, i) => {
+    const fig = document.createElement("figure");
+    const c = document.createElement("canvas");
+    c.width = cv.width; c.height = cv.height;
+    const x = c.getContext("2d");
+    x.imageSmoothingEnabled = false;
+    x.drawImage(cv, 0, 0);
+    const lbl = document.createElement("div");
+    lbl.className = "lbl";
+    lbl.textContent = i === 0 ? "0 · closed" : i;
+    fig.append(c, lbl);
+    box.append(fig);
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   2. audio: decode + per-frame RMS  (cached — never recomputed
+      when threshold / hold / scale change)
+   ══════════════════════════════════════════════════════════ */
+
+let audioCtx = null;
+function ctx() { return audioCtx || (audioCtx = new (window.AudioContext || window.webkitAudioContext)()); }
+
+async function loadAudioBuffer(arrayBuf, url) {
+  let buf;
+  try {
+    buf = await ctx().decodeAudioData(arrayBuf.slice(0));
+  } catch (e) {
+    return err("input", "Couldn't decode that audio file. Try a plain WAV or MP3.");
+  }
+  S.audioBuffer = buf;
+  if (S.audioURL) URL.revokeObjectURL(S.audioURL);
+  S.audioURL = url;
+  $("audioEl").src = url;
+  clearMsg("input");
+  analyze();
+  autoThreshold();   // only on new audio — don't stomp manual tuning later
+}
+
+function analyze() {
+  if (!S.audioBuffer) return;
+  const buf = S.audioBuffer;
+  S.fps = parseInt($("fps").value, 10);
+
+  // downmix to mono
+  const n = buf.length;
+  const mono = new Float32Array(n);
+  for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+    const data = buf.getChannelData(ch);
+    for (let i = 0; i < n; i++) mono[i] += data[i];
+  }
+  if (buf.numberOfChannels > 1) {
+    for (let i = 0; i < n; i++) mono[i] /= buf.numberOfChannels;
+  }
+
+  // one window per output video frame
+  const win = Math.max(1, Math.round(buf.sampleRate / S.fps));
+  const frames = Math.max(1, Math.floor(n / win));
+  const db = new Float32Array(frames);
+
+  for (let f = 0; f < frames; f++) {
+    let sum = 0;
+    const start = f * win, end = start + win;
+    for (let i = start; i < end; i++) sum += mono[i] * mono[i];
+    const rms = Math.sqrt(sum / win);
+    db[f] = 20 * Math.log10(rms + 1e-9);
+  }
+
+  // normalize against the 95th percentile of non-silent windows, not the max —
+  // one loud pop shouldn't squash the rest of the take
+  const voiced = Array.from(db).filter(v => v > DB_FLOOR).sort((a, b) => a - b);
+  let ref = voiced.length ? voiced[Math.floor(voiced.length * 0.95)] : 0;
+  if (ref <= DB_FLOOR + 1) ref = DB_FLOOR + 1;
+
+  const out = new Float32Array(frames);
+  for (let f = 0; f < frames; f++) {
+    out[f] = clamp(((db[f] - DB_FLOOR) / (ref - DB_FLOOR)) * 100, 0, 100);
+  }
+  S.rms = out;
+
+  $("stDur").textContent = buf.duration.toFixed(2) + "s";
+  remap();
+  drawWave();
+  updateReady();
+}
+
+// The threshold is a hard gate on the recording's noise floor, and where that
+// floor sits is a property of the mic and the room — a fixed default is right
+// for one take and wrong for the next. So place it from the audio itself, just
+// above the quiet frames, and let the slider fine-tune from there.
+function autoThreshold() {
+  if (!S.rms || !S.rms.length) return;
+  const sorted = Array.from(S.rms).sort((a, b) => a - b);
+  const floor = sorted[Math.floor(sorted.length * 0.20)];   // typical quiet frame
+  const t = clamp(Math.round(floor + 6), 2, 60);
+  $("thr").value = t;
+  $("thrV").textContent = t;
+  remap();
+}
+
+/* ══════════════════════════════════════════════════════════
+   3. mapping: loudness → sprite index (cheap; runs on every
+      slider drag)
+   ══════════════════════════════════════════════════════════ */
+
+function bandOf(v, thr, N) {
+  if (v <= thr) return 0;
+  const t = (v - thr) / (100 - thr);
+  return clamp(1 + Math.floor(t * (N - 1)), 1, N - 1);
+}
+
+function remap() {
+  if (!S.rms || !S.keyed.length) return;
+  const thr = parseInt($("thr").value, 10);
+  const hold = parseInt($("hold").value, 10);
+  const N = S.keyed.length;
+  const len = S.rms.length;
+  const map = new Int16Array(len);
+
+  let cur = 0, heldFor = 0;
+  for (let f = 0; f < len; f++) {
+    const v = S.rms[f];
+    let want = bandOf(v, thr, N);
+
+    // hysteresis: must clear the boundary by a margin before switching,
+    // otherwise a value sitting on the edge chatters between two mouths
+    if (want > cur && bandOf(v - HYST, thr, N) <= cur) want = cur;
+    else if (want < cur && bandOf(v + HYST, thr, N) >= cur) want = cur;
+
+    // minimum hold — the single most important step. without it, strobing.
+    if (want !== cur && heldFor < hold) { want = cur; }
+
+    if (want === cur) heldFor++;
+    else { cur = want; heldFor = 1; }
+    map[f] = cur;
+  }
+
+  S.mapping = map;
+  let closed = 0;
+  for (let f = 0; f < len; f++) if (map[f] === 0) closed++;
+  $("stFrames").textContent = len;
+  $("stClosed").textContent = Math.round((closed / len) * 100) + "%";
+  drawWave();
+  drawFrameAt(currentFrame());
+}
+
+/* ══════════════════════════════════════════════════════════
+   4. preview + waveform
+   ══════════════════════════════════════════════════════════ */
+
+function spriteSize() {
+  if (!S.keyed.length) return [0, 0];
+  const s = parseInt($("scale").value, 10);
+  return [S.keyed[0].width * s, S.keyed[0].height * s];
+}
+
+function resizePreview() {
+  const [w, h] = spriteSize();
+  if (!w) return;
+  const cv = $("preview");
+  cv.width = w; cv.height = h;
+  cv.hidden = false;
+  $("emptyNote").style.display = "none";
+  cv.classList.toggle("checker", $("checker").checked);
+}
+
+function drawFrameAt(f) {
+  if (!S.keyed.length) return;
+  const cv = $("preview");
+  const x = cv.getContext("2d");
+  x.imageSmoothingEnabled = false;              // nearest neighbour only
+  x.clearRect(0, 0, cv.width, cv.height);
+  const idx = S.mapping ? S.mapping[clamp(f, 0, S.mapping.length - 1)] : 0;
+  const spr = S.keyed[clamp(idx, 0, S.keyed.length - 1)];
+  x.drawImage(spr, 0, 0, cv.width, cv.height);
+  $("frameLbl").textContent = S.mapping ? `frame ${f} · sprite ${idx}` : "";
+}
+
+function currentFrame() {
+  const a = $("audioEl");
+  return Math.floor((a.currentTime || 0) * S.fps);
+}
+
+function drawWave() {
+  const cv = $("wave");
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 600, h = 84;
+  cv.width = w * dpr; cv.height = h * dpr;
+  cv.style.height = h + "px";
+  const x = cv.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, w, h);
+
+  if (!S.rms) return;
+  const len = S.rms.length;
+  const thr = parseInt($("thr").value, 10);
+
+  // threshold line
+  const thrY = h - (thr / 100) * h;
+  x.strokeStyle = "#f0b42977"; x.lineWidth = 1;
+  x.beginPath(); x.moveTo(0, thrY); x.lineTo(w, thrY); x.stroke();
+
+  for (let px = 0; px < w; px++) {
+    const f = Math.floor((px / w) * len);
+    const v = S.rms[f];
+    const bh = (v / 100) * h;
+    const open = S.mapping && S.mapping[f] > 0;
+    x.fillStyle = open ? "#ff4fa3" : "#3a4049";
+    x.fillRect(px, h - bh, 1, bh);
+  }
+
+  // playhead
+  const a = $("audioEl");
+  if (S.audioBuffer && a.duration) {
+    const px = (a.currentTime / S.audioBuffer.duration) * w;
+    x.fillStyle = "#4fd1c5";
+    x.fillRect(px, 0, 1.5, h);
+  }
+}
+
+/* playback loop */
+let raf = null;
+function tick() {
+  const a = $("audioEl");
+  drawFrameAt(currentFrame());
+  drawWave();
+  $("timeLbl").textContent =
+    `${(a.currentTime || 0).toFixed(2)} / ${(S.audioBuffer ? S.audioBuffer.duration : 0).toFixed(2)} s`;
+  raf = requestAnimationFrame(tick);
+}
+function startLoop() { if (!raf) tick(); }
+function stopLoop() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+
+/* ══════════════════════════════════════════════════════════
+   5. ZIP writer — STORE (no compression). PNGs are already
+      compressed, so a stored archive is valid and tiny to write.
+   ══════════════════════════════════════════════════════════ */
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+function dosTime(d) {
+  return ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() / 2)) & 0xFFFF;
+}
+function dosDate(d) {
+  return (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+}
+
+function buildZip(files) {   // files: [{name, bytes, crc}]
+  const enc = new TextEncoder();
+  const now = new Date();
+  const time = dosTime(now), date = dosDate(now);
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const size = f.bytes.length;
+    const crc = f.crc;
+
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true);
+    lh.setUint16(4, 20, true);      // version needed
+    lh.setUint16(6, 0, true);       // flags
+    lh.setUint16(8, 0, true);       // method 0 = store
+    lh.setUint16(10, time, true);
+    lh.setUint16(12, date, true);
+    lh.setUint32(14, crc, true);
+    lh.setUint32(18, size, true);   // compressed size == uncompressed
+    lh.setUint32(22, size, true);
+    lh.setUint16(26, name.length, true);
+    lh.setUint16(28, 0, true);
+    chunks.push(new Uint8Array(lh.buffer), name, f.bytes);
+
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true);
+    ch.setUint16(4, 20, true);      // version made by
+    ch.setUint16(6, 20, true);      // version needed
+    ch.setUint16(8, 0, true);
+    ch.setUint16(10, 0, true);
+    ch.setUint16(12, time, true);
+    ch.setUint16(14, date, true);
+    ch.setUint32(16, crc, true);
+    ch.setUint32(20, size, true);
+    ch.setUint32(24, size, true);
+    ch.setUint16(28, name.length, true);
+    ch.setUint16(30, 0, true);      // extra
+    ch.setUint16(32, 0, true);      // comment
+    ch.setUint16(34, 0, true);      // disk
+    ch.setUint16(36, 0, true);      // internal attrs
+    ch.setUint32(38, 0, true);      // external attrs
+    ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+
+    offset += 30 + name.length + size;
+  }
+
+  let cdSize = 0;
+  for (const c of central) cdSize += c.length;
+
+  const eo = new DataView(new ArrayBuffer(22));
+  eo.setUint32(0, 0x06054b50, true);
+  eo.setUint16(4, 0, true);
+  eo.setUint16(6, 0, true);
+  eo.setUint16(8, files.length, true);
+  eo.setUint16(10, files.length, true);
+  eo.setUint32(12, cdSize, true);
+  eo.setUint32(16, offset, true);
+  eo.setUint16(20, 0, true);
+
+  return new Blob([...chunks, ...central, new Uint8Array(eo.buffer)], { type: "application/zip" });
+}
+
+/* ══════════════════════════════════════════════════════════
+   6. exports
+   ══════════════════════════════════════════════════════════ */
+
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+async function exportPNG() {
+  if (!S.mapping) return;
+  const btn = $("expPng");
+  btn.disabled = true;
+  msg("exp", "work", "Rendering sprites…");
+
+  const [w, h] = spriteSize();
+  // Only N distinct images exist, so render each once and reuse the bytes for
+  // every frame that points at it. Turns thousands of encodes into a handful.
+  const unique = [];
+  for (const spr of S.keyed) {
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    const x = cv.getContext("2d");
+    x.imageSmoothingEnabled = false;
+    x.drawImage(spr, 0, 0, w, h);
+    const blob = await new Promise(res => cv.toBlob(res, "image/png"));
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    unique.push({ bytes, crc: crc32(bytes) });
+  }
+
+  const total = S.mapping.length;
+  const files = [];
+  const pad = String(total).length < 4 ? 4 : String(total).length;
+  for (let f = 0; f < total; f++) {
+    const u = unique[S.mapping[f]];
+    files.push({ name: `frame_${String(f + 1).padStart(pad, "0")}.png`, bytes: u.bytes, crc: u.crc });
+    if (f % 500 === 0) {
+      msg("exp", "work", `Packing frame ${f + 1} of ${total}…`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  msg("exp", "work", "Building archive…");
+  await new Promise(r => setTimeout(r, 0));
+  const zip = buildZip(files);
+  download(zip, `catsync_${total}f_${S.fps}fps.zip`);
+  msg("exp", "ok", `Exported ${total} frames at ${S.fps} fps. Import as an image sequence.`);
+  btn.disabled = false;
+}
+
+let recorder = null;
+async function exportWebM() {
+  if (!S.mapping) return;
+  const btn = $("expWebm");
+  const a = $("audioEl");
+  btn.disabled = true;
+
+  const [w, h] = spriteSize();
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const x = cv.getContext("2d");
+  x.imageSmoothingEnabled = false;
+
+  const stream = cv.captureStream(S.fps);
+
+  // mux the original audio in so it lands in the timeline already in sync
+  try {
+    const src = ctx().createMediaElementSource(a);
+    const dest = ctx().createMediaStreamDestination();
+    src.connect(dest);
+    src.connect(ctx().destination);
+    dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+  } catch (e) { /* already wired from a previous run — fine */ }
+
+  const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+    .find(m => MediaRecorder.isTypeSupported(m));
+  if (!mime) { msg("exp", "err", "This browser can't record WebM. Use the PNG sequence."); btn.disabled = false; return; }
+
+  const parts = [];
+  recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+  recorder.ondataavailable = e => { if (e.data.size) parts.push(e.data); };
+  recorder.onstop = () => {
+    download(new Blob(parts, { type: "video/webm" }), `catsync_${S.fps}fps.webm`);
+    msg("exp", "ok", "WebM exported. Key out the background color in your editor.");
+    btn.disabled = false;
+  };
+
+  const keyHex = $("key").value;
+  let stopped = false;
+  const paint = () => {
+    if (stopped) return;
+    x.fillStyle = keyHex;                        // baked-in background, no alpha
+    x.fillRect(0, 0, w, h);
+    const idx = S.mapping[clamp(currentFrame(), 0, S.mapping.length - 1)];
+    x.drawImage(S.keyed[idx], 0, 0, w, h);
+    requestAnimationFrame(paint);
+  };
+
+  msg("exp", "work", "Recording in real time — don't switch tabs…");
+  a.currentTime = 0;
+  await a.play();
+  startLoop();
+  recorder.start();
+  paint();
+
+  a.onended = () => {
+    stopped = true;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    a.onended = null;
+  };
+}
+
+/* ══════════════════════════════════════════════════════════
+   7. demo assets — a throwaway sheet + clip, so the whole
+      pipeline is testable before any real art exists
+   ══════════════════════════════════════════════════════════ */
+
+function demoSheet() {
+  const CW = 48, CH = 64, N = 4;
+  const cv = document.createElement("canvas");
+  cv.width = CW * N; cv.height = CH;
+  const x = cv.getContext("2d");
+  x.fillStyle = "#ff00ff";
+  x.fillRect(0, 0, cv.width, cv.height);
+
+  const mouths = [[8, 2], [8, 4], [10, 10], [14, 6]];  // [width, height] per frame
+  for (let i = 0; i < N; i++) {
+    const ox = i * CW;
+    const px = (X, Y, W, H, col) => { x.fillStyle = col; x.fillRect(ox + X, Y, W, H); };
+
+    px(14, 30, 20, 26, "#6b6f76");                   // body
+    px(16, 56, 6, 6, "#5a5e64"); px(26, 56, 6, 6, "#5a5e64");  // feet
+    px(12, 10, 24, 22, "#8e939b");                   // head
+    px(12, 4, 6, 8, "#8e939b"); px(30, 4, 6, 8, "#8e939b");    // ears
+    px(14, 6, 2, 5, "#d98fa8");  px(32, 6, 2, 5, "#d98fa8");   // inner ears
+    px(14, 17, 20, 5, "#101216");                    // sunglasses
+    px(23, 18, 2, 3, "#101216");                     // bridge
+    px(22, 25, 4, 3, "#d98fa8");                     // nose
+
+    const [mw, mh] = mouths[i];                      // mouth: the only thing that changes
+    px(24 - (mw >> 1), 30, mw, mh, "#2a1a22");
+  }
+  return cv;
+}
+
+function demoAudio() {
+  const sr = 44100, dur = 4.0;
+  const n = Math.floor(sr * dur);
+  const data = new Float32Array(n);
+  // low room tone under everything — real recordings are never digitally
+  // silent, and without it the threshold slider appears to do nothing
+  for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * 0.005;
+  // syllable-ish bursts with a real pause in the middle, so the closed-mouth
+  // percentage means something
+  const beats = [];
+  let t = 0.15;
+  while (t < 1.7) { beats.push([t, 0.10 + Math.random() * 0.09, 0.35 + Math.random() * 0.5]); t += 0.16 + Math.random() * 0.10; }
+  t = 2.5;
+  while (t < 3.8) { beats.push([t, 0.10 + Math.random() * 0.09, 0.35 + Math.random() * 0.5]); t += 0.16 + Math.random() * 0.10; }
+
+  for (const [start, len, amp] of beats) {
+    const s0 = Math.floor(start * sr), s1 = Math.min(n, Math.floor((start + len) * sr));
+    const f = 120 + Math.random() * 90;
+    for (let i = s0; i < s1; i++) {
+      const p = (i - s0) / (s1 - s0);
+      const env = Math.sin(Math.PI * p);
+      data[i] += amp * env * (0.6 * Math.sin(2 * Math.PI * f * i / sr) + 0.4 * (Math.random() * 2 - 1) * 0.5);
+    }
+  }
+  return encodeWAV(data, sr);
+}
+
+function encodeWAV(samples, sr) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); str(8, "WAVE");
+  str(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, "data"); v.setUint32(40, samples.length * 2, true);
+  let o = 44;
+  for (let i = 0; i < samples.length; i++, o += 2) {
+    v.setInt16(o, clamp(samples[i], -1, 1) * 0x7FFF, true);
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+async function loadDemo() {
+  S.sheetImg = demoSheet();
+  $("cols").value = 4; $("rows").value = 1;
+  $("dropSheet").classList.add("loaded");
+  $("dropSheet").innerHTML = "<strong>Sprite sheet</strong><br>demo sheet · 4×1";
+  sliceSheet();
+
+  const blob = demoAudio();
+  const url = URL.createObjectURL(blob);
+  $("dropAudio").classList.add("loaded");
+  $("dropAudio").innerHTML = "<strong>Audio</strong><br>demo clip · 4.0s";
+  await loadAudioBuffer(await blob.arrayBuffer(), url);
+  $("scale").value = 4; $("scaleV").textContent = "4×";
+  resizePreview();
+  drawFrameAt(0);
+}
+
+/* ══════════════════════════════════════════════════════════
+   8. messages + wiring
+   ══════════════════════════════════════════════════════════ */
+
+function msg(which, kind, text) {
+  const el = $(which === "exp" ? "expMsg" : "inputMsg");
+  el.className = "msg " + kind;
+  el.textContent = text;
+}
+function err(which, text) { msg(which, "err", text); }
+function clearMsg(which) {
+  const el = $(which === "exp" ? "expMsg" : "inputMsg");
+  el.className = "msg"; el.textContent = "";
+}
+
+function updateReady() {
+  const ready = !!(S.mapping && S.keyed.length && S.audioBuffer);
+  $("expPng").disabled = !ready;
+  $("expWebm").disabled = !ready;
+  $("playBtn").disabled = !S.audioBuffer;
+}
+
+function wireDrop(el, accept, onFile) {
+  const input = document.createElement("input");
+  input.type = "file"; input.accept = accept; input.hidden = true;
+  document.body.append(input);
+  el.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => { if (input.files[0]) onFile(input.files[0]); });
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("over"); });
+  el.addEventListener("dragleave", () => el.classList.remove("over"));
+  el.addEventListener("drop", e => {
+    e.preventDefault(); el.classList.remove("over");
+    const f = e.dataTransfer.files[0];
+    if (f) onFile(f);
+  });
+}
+
+wireDrop($("dropSheet"), "image/*", file => {
+  const img = new Image();
+  img.onload = () => {
+    S.sheetImg = img;
+    $("dropSheet").classList.add("loaded");
+    $("dropSheet").innerHTML = `<strong>Sprite sheet</strong><br>${file.name} · ${img.width}×${img.height}`;
+    sliceSheet();
+    updateReady();
+  };
+  img.onerror = () => err("input", "Couldn't read that image.");
+  img.src = URL.createObjectURL(file);
+});
+
+wireDrop($("dropAudio"), "audio/*", async file => {
+  $("dropAudio").classList.add("loaded");
+  $("dropAudio").innerHTML = `<strong>Audio</strong><br>${file.name}`;
+  const buf = await file.arrayBuffer();
+  await loadAudioBuffer(buf, URL.createObjectURL(file));
+  updateReady();
+});
+
+$("cols").addEventListener("input", () => { sliceSheet(); updateReady(); });
+$("rows").addEventListener("input", () => { sliceSheet(); updateReady(); });
+$("key").addEventListener("input", applyKey);
+$("tol").addEventListener("input", () => { $("tolV").textContent = $("tol").value; applyKey(); });
+$("scale").addEventListener("input", () => {
+  $("scaleV").textContent = $("scale").value + "×";
+  resizePreview(); drawFrameAt(currentFrame());
+});
+$("checker").addEventListener("change", () => $("preview").classList.toggle("checker", $("checker").checked));
+$("fps").addEventListener("input", () => { $("fpsV").textContent = $("fps").value; analyze(); });
+$("thr").addEventListener("input", () => { $("thrV").textContent = $("thr").value; remap(); });
+$("hold").addEventListener("input", () => { $("holdV").textContent = $("hold").value; remap(); });
+$("demoBtn").addEventListener("click", () => { loadDemo().then(updateReady); });
+$("expPng").addEventListener("click", exportPNG);
+$("expWebm").addEventListener("click", exportWebM);
+
+$("playBtn").addEventListener("click", () => {
+  const a = $("audioEl");
+  if (a.paused) { a.play(); $("playBtn").textContent = "Pause"; startLoop(); }
+  else { a.pause(); $("playBtn").textContent = "Play"; stopLoop(); }
+});
+$("audioEl").addEventListener("ended", () => { $("playBtn").textContent = "Play"; stopLoop(); });
+
+$("wave").addEventListener("click", e => {
+  if (!S.audioBuffer) return;
+  const r = $("wave").getBoundingClientRect();
+  $("audioEl").currentTime = ((e.clientX - r.left) / r.width) * S.audioBuffer.duration;
+  drawWave(); drawFrameAt(currentFrame());
+});
+
+window.addEventListener("resize", drawWave);
+drawWave();
+</script>
+</body>
+</html>
