@@ -21,7 +21,9 @@ Click any frame in the strip to select it. The reference frame is ghosted undern
 
 - **Ghost / Difference** — Difference blend makes a misalignment obvious; anything still lit up is off.
 - **Reference** — frame 0 (everything anchors to one frame) or previous (chains down the strip).
-- **Auto-align** — searches a ±12px window for the shift that best matches the reference, weighting the silhouette heavily since the mouth is the one part allowed to differ. Verified to recover known drift exactly on the demo sheet, ~30ms per frame.
+- **Auto-align** — searches for the shift that best matches the reference, weighting the silhouette heavily since the mouth is the one part allowed to differ.
+
+The search window is 6% of sprite size, and on anything above 192px the matching runs on a downscaled copy — otherwise the cost, which is (2R+1)² × pixels, freezes the tab on a high-resolution sheet. Precision ends up relative rather than absolute: exact at 48px, within 4px at 1024px, which is 0.4% and invisible once composited. Measured 44–108ms per frame from 48px to 1024px. Arrow keys give you exact control if you want it.
 
 Frame 0 is the anchor and can't be moved. The demo sheet ships with deliberate drift on cells 1–3 so you can see the feature work.
 
@@ -30,6 +32,10 @@ Frame 0 is the anchor and can't be moved. The demo sheet ships with deliberate d
 The exported frame is a window onto the cell, not the whole cell — trim dead space or reframe to head-and-shoulders. Set X/Y/W/H in sprite pixels, or hit **Fit to content** for the union bounding box of every frame's opaque pixels with 1px padding. It's outlined in teal on the align canvas, with everything outside dimmed.
 
 The viewport applies after alignment, so align first, then frame.
+
+## Display vs export size
+
+**Fit preview to window** (on by default) scales the preview down to fit — display only, it never touches what you export. The **Output** stat under the preview always shows the real exported pixel size, which is the viewport dimensions × **Scale**. If the exported PNGs come out a size you didn't expect, that readout is the one to trust.
 
 ## Exports
 

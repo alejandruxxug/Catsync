@@ -101,10 +101,13 @@
     padding: 12px; display: flex; flex-direction: column; gap: 10px;
   }
   #previewWrap {
-    min-height: 300px; display: flex; align-items: center; justify-content: center;
+    min-height: 220px; max-height: 52vh;
+    display: flex; align-items: center; justify-content: center;
     background: var(--panel2); border-radius: 6px; padding: 12px; overflow: auto;
   }
-  #preview { image-rendering: pixelated; display: block; max-width: 100%; }
+  /* display size only — the canvas keeps its full export resolution */
+  #preview { image-rendering: pixelated; display: block; }
+  #preview.fit { max-width: 100%; max-height: calc(52vh - 24px); width: auto; height: auto; }
   #preview.checker {
     background-image:
       linear-gradient(45deg, #33383f 25%, transparent 25%),
@@ -144,7 +147,10 @@
     background: var(--panel2); border-radius: 6px; padding: 10px;
     display: flex; align-items: center; justify-content: center; min-height: 220px; overflow: auto;
   }
-  #alignCv { image-rendering: pixelated; display: block; cursor: grab; touch-action: none; }
+  #alignCv {
+    image-rendering: pixelated; display: block; cursor: grab; touch-action: none;
+    max-width: 100%; max-height: 42vh; width: auto; height: auto;
+  }
   #alignCv.drag { cursor: grabbing; }
   #alignCv:focus { outline: 2px solid var(--accent); outline-offset: 3px; }
   .nudge { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; }
@@ -233,6 +239,11 @@
         <input type="checkbox" id="checker" checked>
         <label for="checker" style="flex:none">Show transparency</label>
       </div>
+      <div class="checkrow">
+        <input type="checkbox" id="fitView" checked>
+        <label for="fitView" style="flex:none">Fit preview to window</label>
+      </div>
+      <div class="hint">Display only. Export resolution is set by <em>Scale</em> and the viewport, and is shown as <em>Output</em> below the preview.</div>
     </div>
 
     <div class="panel">
@@ -277,6 +288,7 @@
         <div class="stat"><div class="k">Frames</div><div class="v" id="stFrames">&mdash;</div></div>
         <div class="stat"><div class="k">Mouth closed</div><div class="v" id="stClosed">&mdash;</div></div>
         <div class="stat"><div class="k">Sprites</div><div class="v" id="stSprites">&mdash;</div></div>
+        <div class="stat"><div class="k">Output</div><div class="v" id="stOut">&mdash;</div></div>
       </div>
     </div>
 
@@ -440,7 +452,7 @@ function applyKey() {
     return cv;
   });
 
-  idCache.clear();                 // keyed pixels changed, so cached ones are stale
+  idCache.clear(); workCache.clear();   // keyed pixels changed, cached copies are stale
   S.sel = clamp(S.sel, 0, S.keyed.length - 1);
   drawThumbs();
   renderAlign();
@@ -681,6 +693,8 @@ function resizePreview() {
   cv.hidden = false;
   $("emptyNote").style.display = "none";
   cv.classList.toggle("checker", $("checker").checked);
+  cv.classList.toggle("fit", $("fitView").checked);
+  $("stOut").textContent = `${w}×${h}`;
 }
 
 function drawFrameAt(f) {
@@ -859,16 +873,54 @@ function pixelsOf(i) {
   return d;
 }
 
+/* The search cost is (2R+1)² × pixels, which explodes on a high-resolution
+   sheet — a 1024px sprite would freeze the tab. So run the search on a
+   downscaled copy and scale the answer back up. Precision ends up relative
+   to sprite size rather than absolute, which is what actually matters:
+   1px out of 48 and 4px out of 1024 look identical on screen. Small sprites
+   are untouched (factor 1) and stay pixel-exact. */
+const WORK_MAX = 192;
+let workCache = new Map();
+function workOf(i) {
+  if (workCache.has(i)) return workCache.get(i);
+  const src = S.keyed[i];
+  const f = Math.max(1, Math.ceil(Math.max(src.width, src.height) / WORK_MAX));
+  let data;
+  if (f === 1) {
+    data = pixelsOf(i);
+  } else {
+    const w = Math.max(1, Math.round(src.width / f)), h = Math.max(1, Math.round(src.height / f));
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    const x = cv.getContext("2d");
+    x.imageSmoothingEnabled = true;      // averaging is what we want for correlation
+    x.drawImage(src, 0, 0, w, h);
+    data = x.getImageData(0, 0, w, h);
+  }
+  const out = { data, f };
+  workCache.set(i, out);
+  return out;
+}
+
+/* how far to look, as a fraction of sprite size */
+function searchRadius(i) {
+  const s = S.keyed[i];
+  return clamp(Math.round(Math.max(s.width, s.height) * 0.06), 12, 48);
+}
+
 /* Search a small window for the shift that best matches the reference.
    Alpha is weighted heavily — the silhouette is what has to line up, and
    the mouth is the one part that's legitimately allowed to differ. */
 function bestShift(curI, refI, R) {
-  const A = pixelsOf(curI), B = pixelsOf(refI);
-  const w = A.width, h = A.height, a = A.data, b = B.data;
+  const A = workOf(curI), B = workOf(refI);
+  const f = A.f;
+  const Ad = A.data, Bd = B.data;
+  const w = Ad.width, h = Ad.height, a = Ad.data, b = Bd.data;
+  const Rr = Math.max(2, Math.round(R / f));      // radius in working pixels
   let best = { rx: 0, ry: 0, score: Infinity };
 
-  for (let ry = -R; ry <= R; ry++) {
-    for (let rx = -R; rx <= R; rx++) {
+  for (let ry = -Rr; ry <= Rr; ry++) {
+    for (let rx = -Rr; rx <= Rr; rx++) {
       let score = 0;
       // every pixel: sub-sampling aliases away odd-numbered shifts and
       // silently returns an off-by-one. ~30ms per frame, so it doesn't matter.
@@ -894,14 +946,13 @@ function bestShift(curI, refI, R) {
       if (score < best.score) best = { rx, ry, score };
     }
   }
-  return best;
+  return { rx: best.rx * f, ry: best.ry * f };   // back to full-resolution pixels
 }
 
 function autoAlignOne(i, quiet) {
   const ri = refIndexFor(i);
   if (ri < 0) return;
-  const R = Math.max(4, Math.min(12, Math.floor(S.keyed[i].width / 4)));
-  const { rx, ry } = bestShift(i, ri, R);
+  const { rx, ry } = bestShift(i, ri, searchRadius(i));
   const ro = off(ri);
   S.offsets[i] = { dx: ro.dx + rx, dy: ro.dy + ry };   // relative to the aligned reference
   if (!quiet) { afterOffsetChange(); msg("input", "ok", `Frame ${i} shifted ${rx >= 0 ? "+" : ""}${rx}, ${ry >= 0 ? "+" : ""}${ry}.`); }
@@ -1320,7 +1371,9 @@ $("autoAll").addEventListener("click", autoAlignAll);
   cv.addEventListener("pointercancel", end);
 
   cv.addEventListener("keydown", e => {
-    const step = e.shiftKey ? 4 : 1;
+    // on a big sprite a 1px jump is invisible, so scale the coarse step
+    const big = S.keyed.length ? Math.max(S.keyed[0].width, S.keyed[0].height) : 64;
+    const step = e.shiftKey ? Math.max(4, Math.round(big / 64)) : 1;
     const map = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
     if (map[e.key]) { e.preventDefault(); nudge(map[e.key][0] * step, map[e.key][1] * step); }
   });
@@ -1344,6 +1397,7 @@ $("scale").addEventListener("input", () => {
   resizePreview(); drawFrameAt(currentFrame());
 });
 $("checker").addEventListener("change", () => $("preview").classList.toggle("checker", $("checker").checked));
+$("fitView").addEventListener("change", () => $("preview").classList.toggle("fit", $("fitView").checked));
 $("fps").addEventListener("input", () => { $("fpsV").textContent = $("fps").value; analyze(); });
 $("thr").addEventListener("input", () => { $("thrV").textContent = $("thr").value; remap(); });
 $("hold").addEventListener("input", () => { $("holdV").textContent = $("hold").value; remap(); });
