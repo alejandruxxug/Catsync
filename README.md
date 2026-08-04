@@ -1,8 +1,12 @@
 # catsync
 
-Sprite sheet + audio → lip-synced overlay, for the CRAFTING CODE video cats.
+Sprite sheet + audio → lip-synced animation, ready to drop over footage in your editor.
 
-Double-click `index.html`. That's it — no server, no install, no internet. One file, vanilla JS, works from `file://`.
+### → [alejandruxxug.github.io/Catsync](https://alejandruxxug.github.io/Catsync/)
+
+Or download `index.html` and double-click it. Same app either way — one file, vanilla JS, no dependencies, no build step, no server. Nothing you load ever leaves your machine; there's no network code in it at all.
+
+Built for the cats in a class video about compilers, which is why frame 0 is "mouth closed" and everything is pixel-art shaped. It works on any sprite sheet.
 
 ## Use
 
@@ -104,3 +108,7 @@ Real phoneme lip sync needs a transcript, and the cats are small on screen. This
 - Keying defaults to a hard cutoff, because soft edges look wrong on true pixel art. **Feather** (in Look) softens it for anti-aliased or high-resolution sprites — alpha ramps from the tolerance distance out to tolerance + feather.
 - **Despill** removes the key-colour fringe that feathering exposes. It only touches partly-transparent pixels, scaled by how transparent they are, so opaque interior colours are never altered — a genuinely pink nose survives a magenta key. It desaturates toward each pixel's own mean rather than clamping the key's dominant channels: with magenta those are R and B, so clamping collapses toward the lone dark G channel and leaves a dark halo. Pivoting on the mean holds luminance exactly and just drains the colour cast.
 - Record **one long WAV per script segment**, not per line. Fewer passes, and the normalization is steadier across a whole take.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Take it, change it, ship it.
