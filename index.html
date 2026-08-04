@@ -1383,25 +1383,43 @@ async function exportWebM() {
   recorder.ondataavailable = e => { if (e.data.size) parts.push(e.data); };
   recorder.onstop = async () => {
     let blob = new Blob(parts, { type: "video/webm" });
-    const patched = patchWebmDuration(new Uint8Array(await blob.arrayBuffer()), seconds);
+    // Stamp what was really captured, not the theoretical length. Claiming
+    // more than the stream contains makes players freeze on the last frame to
+    // fill the gap; claiming less truncates. Fall back to the nominal length
+    // only if the measurement never happened.
+    const dur = recordedSeconds > 0 ? recordedSeconds : seconds;
+    const patched = patchWebmDuration(new Uint8Array(await blob.arrayBuffer()), dur);
     if (patched) blob = new Blob([patched], { type: "video/webm" });
     download(blob, `catsync_${S.fps}fps.webm`);
+    const drift = dur - seconds;
     msg("exp", patched ? "ok" : "work",
       patched
-        ? `WebM exported — ${total} frames, ${seconds.toFixed(2)}s. Key out the background in your editor.`
+        ? `WebM exported — ${total} frames, ${dur.toFixed(2)}s captured` +
+          (Math.abs(drift) > 0.25 ? ` (${drift > 0 ? "+" : ""}${drift.toFixed(2)}s vs audio — the tab may have been throttled)` : "") +
+          `. Key out the background in your editor.`
         : `WebM exported, but the duration header couldn't be written. Some players will report the wrong length. The PNG sequence has no such problem.`);
     btn.disabled = false;
   };
 
-  let stopped = false;
+  let stopped = false;      // playback done; still flushing
   let timer = null;
+  let recStart = 0;         // wall clock at recorder.start()
+  let recordedSeconds = 0;  // what actually got captured
+  const TAIL_MS = 150;
+
   const finish = () => {
     if (stopped) return;
     stopped = true;
-    if (timer) clearInterval(timer);
     a.pause();
-    // let the encoder flush the last frames before cutting it off
-    setTimeout(() => { if (recorder && recorder.state !== "inactive") recorder.stop(); }, 300);
+    // Keep pushing the final frame while the encoder flushes. Going silent
+    // here leaves the stream with no frames for the tail, and since we stamp
+    // the container with a duration, the player pads the gap by freezing the
+    // last frame — which looks like the animation dying just before the end.
+    setTimeout(() => {
+      if (timer) clearInterval(timer);
+      recordedSeconds = (performance.now() - recStart) / 1000;
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+    }, TAIL_MS);
   };
 
   msg("exp", "work", `Recording ${seconds.toFixed(1)}s in real time — don't switch tabs…`);
@@ -1410,7 +1428,8 @@ async function exportWebM() {
   // is lost in the gap between play() resolving and the recorder arming
   drawIdx(S.mapping[0]);
   recorder.start(1000);
-  await new Promise(r => setTimeout(r, 60));
+  recStart = performance.now();          // the container's t=0
+  await new Promise(r => setTimeout(r, 40));
 
   a.currentTime = 0;
   try { await a.play(); } catch (e) { finish(); msg("exp", "err", "Playback was blocked, so nothing could be recorded."); return; }
@@ -1421,14 +1440,26 @@ async function exportWebM() {
   const t0 = performance.now();
   let lastEmitted = -1;
   timer = setInterval(() => {
-    if (stopped) return;
-    const fi = Math.floor((performance.now() - t0) / frameMs);
-    if (fi >= total) { finish(); return; }
-    if (fi !== lastEmitted) { lastEmitted = fi; drawIdx(S.mapping[fi]); }
-    if (fi % 30 === 0) msg("exp", "work", `Recording… ${Math.round((fi / total) * 100)}%`);
+    const raw = Math.floor((performance.now() - t0) / frameMs);
+    if (stopped) {
+      // flushing: hold on the last frame but keep the stream alive
+      drawIdx(S.mapping[total - 1]);
+      return;
+    }
+    if (raw >= total) { drawIdx(S.mapping[total - 1]); finish(); return; }
+    if (raw !== lastEmitted) { lastEmitted = raw; drawIdx(S.mapping[raw]); }
+    if (raw % 30 === 0) msg("exp", "work", `Recording… ${Math.round((raw / total) * 100)}%`);
   }, Math.max(4, frameMs / 2));
 
-  a.onended = () => { finish(); a.onended = null; };
+  // The frame counter is authoritative — the mapping is derived from this same
+  // audio, so they land together. If `ended` fires early (a slightly short
+  // decode, say), stopping here would freeze the animation before the mapping
+  // is done, so only honour it once we're already at the end.
+  a.onended = () => {
+    const raw = Math.floor((performance.now() - t0) / frameMs);
+    if (raw >= total - 2) finish();
+    a.onended = null;
+  };
 }
 
 /* ══════════════════════════════════════════════════════════
