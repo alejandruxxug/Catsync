@@ -71,5 +71,6 @@ Real phoneme lip sync needs a transcript, and the cats are small on screen. This
 
 - Changing threshold, hold, or scale only redoes the cheap mapping step — the audio is decoded and analyzed once.
 - Scaling is nearest-neighbour only. Blurred pixel art is a failed render.
-- Keying is a hard cutoff with no feathering, because soft edges look wrong on pixel art.
+- Keying defaults to a hard cutoff, because soft edges look wrong on true pixel art. **Feather** (in Look) softens it for anti-aliased or high-resolution sprites — alpha ramps from the tolerance distance out to tolerance + feather.
+- **Despill** removes the key-colour fringe that feathering exposes. It only touches partly-transparent pixels, scaled by how transparent they are, so opaque interior colours are never altered — a genuinely pink nose survives a magenta key. It desaturates toward each pixel's own mean rather than clamping the key's dominant channels: with magenta those are R and B, so clamping collapses toward the lone dark G channel and leaves a dark halo. Pivoting on the mean holds luminance exactly and just drains the colour cast.
 - Record **one long WAV per script segment**, not per line. Fewer passes, and the normalization is steadier across a whole take.
