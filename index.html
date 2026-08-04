@@ -1181,6 +1181,30 @@ function ebmlChildren(b, start, end) {
   return out;
 }
 
+/* How much video the encoder has actually committed, in ms.
+
+   A realtime MediaRecorder can fall behind on a large canvas: frames queue up
+   inside the encoder and stop() throws away whatever hasn't been written yet,
+   silently truncating the end. Wall-clock time says nothing about this, so
+   read it out of the stream — every Cluster carries an absolute Timecode, so
+   the highest one seen is how far the encoding has genuinely got. */
+function scanClusterTimecodes(bytes, soFar) {
+  let best = soFar;
+  for (let i = 0; i + 8 < bytes.length; i++) {
+    if (bytes[i] !== 0x1F || bytes[i+1] !== 0x43 || bytes[i+2] !== 0xB6 || bytes[i+3] !== 0x75) continue;
+    const sz = readVint(bytes, i + 4);
+    if (!sz) continue;
+    let p = i + 4 + sz.len;
+    if (bytes[p] !== 0xE7) continue;                 // Timecode must lead a Cluster
+    const tsz = readVint(bytes, p + 1);
+    if (!tsz || tsz.value > 8 || tsz.value < 1) continue;
+    let v = 0;
+    for (let k = 0; k < tsz.value; k++) v = v * 256 + bytes[p + 1 + tsz.len + k];
+    if (v > best) best = v;                          // TimecodeScale 1e6 => ms
+  }
+  return best;
+}
+
 function patchWebmDuration(bytes, seconds) {
   try {
     const top = ebmlChildren(bytes, 0, bytes.length);
@@ -1360,7 +1384,10 @@ async function exportWebM() {
   const tap = audioTapFor(a);
   if (tap) tap.dest.stream.getAudioTracks().forEach(t => useStream.addTrack(t));
 
-  const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+  // VP8 first: it encodes far faster in realtime than VP9, and falling behind
+  // realtime is what truncates the end of the clip. Quality barely matters
+  // here — this is the preview export, the PNG sequence is the master.
+  const mime = ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus", "video/webm"]
     .find(m => MediaRecorder.isTypeSupported(m));
   if (!mime) { msg("exp", "err", "This browser can't record WebM. Use the PNG sequence."); btn.disabled = false; return; }
 
@@ -1379,25 +1406,47 @@ async function exportWebM() {
   };
 
   const parts = [];
-  recorder = new MediaRecorder(useStream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
-  recorder.ondataavailable = e => { if (e.data.size) parts.push(e.data); };
+  let encodedMs = 0;          // how far the encoder has actually committed
+  let bytesOut = 0;
+
+  // Bitrate scaled to the frame — a fixed 8Mbps on a large canvas is a big
+  // part of why the encoder falls behind realtime in the first place.
+  const bitrate = clamp(Math.round(w * h * S.fps * 0.12), 1_500_000, 12_000_000);
+
+  recorder = new MediaRecorder(useStream, { mimeType: mime, videoBitsPerSecond: bitrate });
+  recorder.ondataavailable = async e => {
+    if (!e.data.size) return;
+    parts.push(e.data);
+    bytesOut += e.data.size;
+    try {
+      encodedMs = scanClusterTimecodes(new Uint8Array(await e.data.arrayBuffer()), encodedMs);
+    } catch (err) { /* progress read is best-effort */ }
+  };
   recorder.onstop = async () => {
     let blob = new Blob(parts, { type: "video/webm" });
-    // Stamp what was really captured, not the theoretical length. Claiming
-    // more than the stream contains makes players freeze on the last frame to
-    // fill the gap; claiming less truncates. Fall back to the nominal length
-    // only if the measurement never happened.
-    const dur = recordedSeconds > 0 ? recordedSeconds : seconds;
-    const patched = patchWebmDuration(new Uint8Array(await blob.arrayBuffer()), dur);
+    const raw = new Uint8Array(await blob.arrayBuffer());
+
+    // Re-measure from the finished file — this catches the final chunks that
+    // arrive as part of stop() and is the truest number we have.
+    const finalMs = scanClusterTimecodes(raw, encodedMs);
+    const dur = finalMs > 0 ? finalMs / 1000 : (recordedSeconds || seconds);
+
+    // Stamp what the stream actually holds. Over-claiming makes players freeze
+    // on the last frame to fill the gap; under-claiming truncates.
+    const patched = patchWebmDuration(raw, dur);
     if (patched) blob = new Blob([patched], { type: "video/webm" });
     download(blob, `catsync_${S.fps}fps.webm`);
-    const drift = dur - seconds;
-    msg("exp", patched ? "ok" : "work",
-      patched
-        ? `WebM exported — ${total} frames, ${dur.toFixed(2)}s captured` +
-          (Math.abs(drift) > 0.25 ? ` (${drift > 0 ? "+" : ""}${drift.toFixed(2)}s vs audio — the tab may have been throttled)` : "") +
-          `. Key out the background in your editor.`
-        : `WebM exported, but the duration header couldn't be written. Some players will report the wrong length. The PNG sequence has no such problem.`);
+
+    const lost = seconds - dur;
+    let note;
+    if (!patched) {
+      note = `WebM exported, but the duration header couldn't be written — some players will report the wrong length.`;
+    } else if (lost > 0.5) {
+      note = `WebM exported but it's ${lost.toFixed(1)}s short of the ${seconds.toFixed(1)}s audio — the encoder couldn't keep up at ${w}×${h}. Lower Scale or tighten the viewport and retry, or use the PNG sequence, which has no realtime limit.`;
+    } else {
+      note = `WebM exported — ${total} frames, ${dur.toFixed(2)}s, ${(bytesOut / 1048576).toFixed(1)}MB at ${w}×${h}. Key out the background in your editor.`;
+    }
+    msg("exp", patched && lost <= 0.5 ? "ok" : "work", note);
     btn.disabled = false;
   };
 
@@ -1411,15 +1460,38 @@ async function exportWebM() {
     if (stopped) return;
     stopped = true;
     a.pause();
-    // Keep pushing the final frame while the encoder flushes. Going silent
-    // here leaves the stream with no frames for the tail, and since we stamp
-    // the container with a duration, the player pads the gap by freezing the
-    // last frame — which looks like the animation dying just before the end.
-    setTimeout(() => {
+
+    // Keep pushing the final frame while the encoder flushes — going silent
+    // leaves recorded time with no frames in it, which players render as a
+    // held frame. Then wait for the encoder to actually catch up rather than
+    // stopping on a fixed timer: on a large canvas it can be seconds behind
+    // realtime, and stop() discards everything still queued.
+    const targetMs = (total * frameMs) - frameMs;
+    const hardDeadline = performance.now() + Math.max(20000, total * frameMs * 0.5);
+    let settled = 0, lastSeen = -1;
+
+    const drain = setInterval(() => {
+      try { if (recorder && recorder.state === "recording") recorder.requestData(); } catch (e) {}
+
+      const caughtUp = encodedMs >= targetMs;
+      // if progress stalls entirely, don't hang forever
+      if (encodedMs === lastSeen) settled++; else { settled = 0; lastSeen = encodedMs; }
+      const stalled = settled >= 8;                    // ~2s with no movement
+      const timedOut = performance.now() > hardDeadline;
+
+      if (!caughtUp && !stalled && !timedOut) {
+        const behind = Math.max(0, (targetMs - encodedMs) / 1000);
+        msg("exp", "work", `Encoder catching up — ${behind.toFixed(1)}s of video still to write…`);
+        return;
+      }
+
+      clearInterval(drain);
       if (timer) clearInterval(timer);
-      recordedSeconds = (performance.now() - recStart) / 1000;
-      if (recorder && recorder.state !== "inactive") recorder.stop();
-    }, TAIL_MS);
+      recordedSeconds = encodedMs > 0 ? encodedMs / 1000 : (performance.now() - recStart) / 1000;
+      setTimeout(() => {
+        if (recorder && recorder.state !== "inactive") recorder.stop();
+      }, TAIL_MS);
+    }, 250);
   };
 
   msg("exp", "work", `Recording ${seconds.toFixed(1)}s in real time — don't switch tabs…`);
