@@ -1061,6 +1061,156 @@ function buildZip(files) {   // files: [{name, bytes, crc}]
 }
 
 /* ══════════════════════════════════════════════════════════
+   5b. WebM duration repair
+
+   MediaRecorder writes a *live-stream* WebM: the Segment has unknown
+   size and the Info block carries no Duration element, because when
+   recording starts the length genuinely isn't known yet. Nothing
+   backfills it on stop. Players and editors then have to guess the
+   length from cluster timecodes, and many guess low — which is why the
+   clip looks shorter than the audio.
+
+   We know the exact intended length (frames ÷ fps), so write it in.
+   Any surprise while parsing returns the original blob untouched: a
+   slightly-wrong duration beats a corrupted file.
+   ══════════════════════════════════════════════════════════ */
+
+const EBML_ID = {
+  SEGMENT: 0x18538067, INFO: 0x1549A966, DURATION: 0x4489, TIMECODESCALE: 0x2AD7B1,
+  SEEKHEAD: 0x114D9B74, CUES: 0x1C53BB6B,
+};
+
+function readVint(b, pos) {
+  const first = b[pos];
+  if (first === undefined || first === 0) return null;
+  let len = 1;
+  for (let m = 0x80; m && !(first & m); m >>= 1) len++;
+  if (len > 8 || pos + len > b.length) return null;
+  let value = first & (0xFF >> len);
+  let unknown = value === (0xFF >> len);
+  for (let i = 1; i < len; i++) {
+    value = value * 256 + b[pos + i];
+    if (b[pos + i] !== 0xFF) unknown = false;
+  }
+  return { value, len, unknown };
+}
+
+function readId(b, pos) {
+  const first = b[pos];
+  if (first === undefined || first === 0) return null;
+  let len = 1;
+  for (let m = 0x80; m && !(first & m); m >>= 1) len++;
+  if (len > 4 || pos + len > b.length) return null;
+  let id = 0;
+  for (let i = 0; i < len; i++) id = id * 256 + b[pos + i];
+  return { id, len };
+}
+
+function writeVint(value) {
+  let len = 1;
+  while (len < 8 && value >= Math.pow(2, 7 * len) - 1) len++;
+  const out = new Uint8Array(len);
+  let v = value;
+  for (let i = len - 1; i >= 0; i--) { out[i] = v & 0xFF; v = Math.floor(v / 256); }
+  out[0] |= 0x80 >> (len - 1);
+  return out;
+}
+
+/* walk one level of children, returns [{id, start, headerLen, size, unknown}] */
+function ebmlChildren(b, start, end) {
+  const out = [];
+  let pos = start;
+  while (pos < end) {
+    const id = readId(b, pos);
+    if (!id) return out;
+    const sz = readVint(b, pos + id.len);
+    if (!sz) return out;
+    const headerLen = id.len + sz.len;
+    out.push({ id: id.id, start: pos, headerLen, size: sz.value, unknown: sz.unknown });
+    if (sz.unknown) return out;                       // can't skip past it
+    pos += headerLen + sz.value;
+  }
+  return out;
+}
+
+function patchWebmDuration(bytes, seconds) {
+  try {
+    const top = ebmlChildren(bytes, 0, bytes.length);
+    const seg = top.find(e => e.id === EBML_ID.SEGMENT);
+    if (!seg) return null;
+
+    const segStart = seg.start + seg.headerLen;
+    const segEnd = seg.unknown ? bytes.length : segStart + seg.size;
+    const info = ebmlChildren(bytes, segStart, segEnd).find(e => e.id === EBML_ID.INFO);
+    if (!info || info.unknown) return null;
+
+    const infoStart = info.start + info.headerLen;
+    const infoEnd = infoStart + info.size;
+    const kids = ebmlChildren(bytes, infoStart, infoEnd);
+
+    // Duration is expressed in TimecodeScale units (default 1ms)
+    let scale = 1000000;
+    const ts = kids.find(e => e.id === EBML_ID.TIMECODESCALE);
+    if (ts) {
+      let v = 0;
+      for (let i = 0; i < ts.size; i++) v = v * 256 + bytes[ts.start + ts.headerLen + i];
+      if (v > 0) scale = v;
+    }
+    const durValue = (seconds * 1e9) / scale;
+
+    const existing = kids.find(e => e.id === EBML_ID.DURATION);
+    if (existing) {
+      // overwrite in place — same length, nothing else moves
+      const out = bytes.slice();
+      const at = existing.start + existing.headerLen;
+      const dv = new DataView(out.buffer, out.byteOffset);
+      if (existing.size === 4) dv.setFloat32(at, durValue, false);
+      else if (existing.size === 8) dv.setFloat64(at, durValue, false);
+      else return null;
+      return out;
+    }
+
+    // Inserting bytes shifts everything after Info, which would invalidate the
+    // absolute byte offsets inside a SeekHead or Cues. MediaRecorder's live
+    // profile writes neither, but if one is there, leave the file alone.
+    const segKids = ebmlChildren(bytes, segStart, segEnd);
+    if (segKids.some(e => e.id === EBML_ID.SEEKHEAD || e.id === EBML_ID.CUES)) return null;
+
+    // no Duration element: append one to Info and resize Info
+    const dur = new Uint8Array(11);
+    dur[0] = 0x44; dur[1] = 0x89;                     // Duration id
+    dur[2] = 0x88;                                    // 8-byte payload
+    new DataView(dur.buffer).setFloat64(3, durValue, false);
+
+    const newInfoSize = info.size + dur.length;
+    const newSizeVint = writeVint(newInfoSize);
+
+    // rebuild: everything before Info | Info id | new size | old content + Duration | rest
+    const idLen = readId(bytes, info.start).len;
+    const head = bytes.subarray(0, info.start);
+    const idPart = bytes.subarray(info.start, info.start + idLen);
+    const body = bytes.subarray(infoStart, infoEnd);
+    const tail = bytes.subarray(infoEnd);
+
+    const out = new Uint8Array(head.length + idPart.length + newSizeVint.length + body.length + dur.length + tail.length);
+    let p = 0;
+    out.set(head, p); p += head.length;
+    out.set(idPart, p); p += idPart.length;
+    out.set(newSizeVint, p); p += newSizeVint.length;
+    out.set(body, p); p += body.length;
+    out.set(dur, p); p += dur.length;
+    out.set(tail, p);
+
+    // if Segment had a known size it just grew, and fixing that is more
+    // surgery than this is worth — bail rather than emit something wrong
+    if (!seg.unknown) return null;
+    return out;
+  } catch (e) {
+    return null;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
    6. exports
    ══════════════════════════════════════════════════════════ */
 
@@ -1116,6 +1266,25 @@ async function exportPNG() {
 }
 
 let recorder = null;
+
+/* createMediaElementSource can only ever be called once per element, so cache
+   the tap. Rebuilding it per export threw, got swallowed, and every export
+   after the first came out silent. */
+let audioTap = null;
+function audioTapFor(a) {
+  if (audioTap) return audioTap;
+  try {
+    const src = ctx().createMediaElementSource(a);
+    const dest = ctx().createMediaStreamDestination();
+    src.connect(dest);
+    src.connect(ctx().destination);   // keep it audible while recording
+    audioTap = { src, dest };
+  } catch (e) {
+    audioTap = null;
+  }
+  return audioTap;
+}
+
 async function exportWebM() {
   if (!S.mapping) return;
   const btn = $("expWebm");
@@ -1128,54 +1297,90 @@ async function exportWebM() {
   const x = cv.getContext("2d");
   x.imageSmoothingEnabled = false;
 
-  const stream = cv.captureStream(S.fps);
+  // captureStream(0) hands us frame-by-frame control via requestFrame().
+  // Left on auto-capture, frames are only sampled when the canvas happens to
+  // be dirty and rAF throttles to ~1fps in a background tab, so the cadence
+  // silently collapses. Fall back to auto if requestFrame isn't available.
+  const stream = cv.captureStream(0);
+  const vtrack = stream.getVideoTracks()[0];
+  const manual = typeof vtrack.requestFrame === "function";
+  const autoStream = manual ? null : cv.captureStream(S.fps);
+  const useStream = manual ? stream : autoStream;
 
-  // mux the original audio in so it lands in the timeline already in sync
-  try {
-    const src = ctx().createMediaElementSource(a);
-    const dest = ctx().createMediaStreamDestination();
-    src.connect(dest);
-    src.connect(ctx().destination);
-    dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
-  } catch (e) { /* already wired from a previous run — fine */ }
+  // one persistent tap — createMediaElementSource throws on a second call for
+  // the same element, which used to silently drop audio from every re-export
+  const tap = audioTapFor(a);
+  if (tap) tap.dest.stream.getAudioTracks().forEach(t => useStream.addTrack(t));
 
   const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
     .find(m => MediaRecorder.isTypeSupported(m));
   if (!mime) { msg("exp", "err", "This browser can't record WebM. Use the PNG sequence."); btn.disabled = false; return; }
 
+  const total = S.mapping.length;
+  const seconds = total / S.fps;
+  const frameMs = 1000 / S.fps;
+  const keyHex = $("key").value;
+  const sc = parseInt($("scale").value, 10);
+
+  const drawIdx = idx => {
+    x.fillStyle = keyHex;                        // baked-in background, no alpha
+    x.fillRect(0, 0, w, h);
+    const o = off(idx), spr = S.keyed[idx];
+    x.drawImage(spr, (o.dx - S.crop.x) * sc, (o.dy - S.crop.y) * sc, spr.width * sc, spr.height * sc);
+    if (manual) vtrack.requestFrame();
+  };
+
   const parts = [];
-  recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+  recorder = new MediaRecorder(useStream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
   recorder.ondataavailable = e => { if (e.data.size) parts.push(e.data); };
-  recorder.onstop = () => {
-    download(new Blob(parts, { type: "video/webm" }), `catsync_${S.fps}fps.webm`);
-    msg("exp", "ok", "WebM exported. Key out the background color in your editor.");
+  recorder.onstop = async () => {
+    let blob = new Blob(parts, { type: "video/webm" });
+    const patched = patchWebmDuration(new Uint8Array(await blob.arrayBuffer()), seconds);
+    if (patched) blob = new Blob([patched], { type: "video/webm" });
+    download(blob, `catsync_${S.fps}fps.webm`);
+    msg("exp", patched ? "ok" : "work",
+      patched
+        ? `WebM exported — ${total} frames, ${seconds.toFixed(2)}s. Key out the background in your editor.`
+        : `WebM exported, but the duration header couldn't be written. Some players will report the wrong length. The PNG sequence has no such problem.`);
     btn.disabled = false;
   };
 
-  const keyHex = $("key").value;
   let stopped = false;
-  const paint = () => {
+  let timer = null;
+  const finish = () => {
     if (stopped) return;
-    x.fillStyle = keyHex;                        // baked-in background, no alpha
-    x.fillRect(0, 0, w, h);
-    const idx = S.mapping[clamp(currentFrame(), 0, S.mapping.length - 1)];
-    const sc = parseInt($("scale").value, 10), o = off(idx), spr = S.keyed[idx];
-    x.drawImage(spr, (o.dx - S.crop.x) * sc, (o.dy - S.crop.y) * sc, spr.width * sc, spr.height * sc);
-    requestAnimationFrame(paint);
-  };
-
-  msg("exp", "work", "Recording in real time — don't switch tabs…");
-  a.currentTime = 0;
-  await a.play();
-  startLoop();
-  recorder.start();
-  paint();
-
-  a.onended = () => {
     stopped = true;
-    if (recorder && recorder.state !== "inactive") recorder.stop();
-    a.onended = null;
+    if (timer) clearInterval(timer);
+    a.pause();
+    // let the encoder flush the last frames before cutting it off
+    setTimeout(() => { if (recorder && recorder.state !== "inactive") recorder.stop(); }, 300);
   };
+
+  msg("exp", "work", `Recording ${seconds.toFixed(1)}s in real time — don't switch tabs…`);
+
+  // prime a frame, start recording, and only then start playback, so nothing
+  // is lost in the gap between play() resolving and the recorder arming
+  drawIdx(S.mapping[0]);
+  recorder.start(1000);
+  await new Promise(r => setTimeout(r, 60));
+
+  a.currentTime = 0;
+  try { await a.play(); } catch (e) { finish(); msg("exp", "err", "Playback was blocked, so nothing could be recorded."); return; }
+  startLoop();
+
+  // pace off the wall clock: MediaRecorder timestamps by real elapsed time, so
+  // frames have to be emitted in real time for the duration to come out right
+  const t0 = performance.now();
+  let lastEmitted = -1;
+  timer = setInterval(() => {
+    if (stopped) return;
+    const fi = Math.floor((performance.now() - t0) / frameMs);
+    if (fi >= total) { finish(); return; }
+    if (fi !== lastEmitted) { lastEmitted = fi; drawIdx(S.mapping[fi]); }
+    if (fi % 30 === 0) msg("exp", "work", `Recording… ${Math.round((fi / total) * 100)}%`);
+  }, Math.max(4, frameMs / 2));
+
+  a.onended = () => { finish(); a.onended = null; };
 }
 
 /* ══════════════════════════════════════════════════════════
