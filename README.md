@@ -7,11 +7,35 @@ Double-click `index.html`. That's it — no server, no install, no internet. One
 ## Use
 
 1. **Load demo** to see the whole pipeline work before you have real art.
-2. Drag in your talking sprite sheet, set columns × rows (the Pass 2 sheet is `4 × 1`).
+2. Drag in your talking sprite sheet. It guesses the grid; fix it in **Slicing** if the guess is off.
 3. Drag in a WAV or MP3.
 4. Hit Play, tune, export.
 
 Frames must be ordered **quietest to loudest** — frame 0 is mouth closed, last frame is widest. Any count from 2 up works.
+
+## Slicing
+
+A sheet is not always `W/cols × H/rows`. Generated ones come back with a margin around the outside, gutters between cells, or a size that just doesn't divide evenly — and refusing all three, which is what the old slicer did, meant reaching for a pixel editor before you could start.
+
+The grid is its own thing now: an **origin**, a **cell size**, and a **gutter**. Cols × rows only says how many cells to step through. The sheet is drawn with the grid on top, everything outside it dimmed and each cell numbered — drag the grid to move it, drag the pink handle on the first cell to resize every cell, or arrow-key the origin once the sheet is focused.
+
+Which control does what:
+
+- **Cols, rows, gutter** refit the cells to the sheet. Whatever the margin and gutters leave over gets split evenly, so a grid never quietly runs off the edge because you asked for one more column.
+- **Cell W/H and origin** are taken exactly as typed. Dragging never resizes; resizing never moves.
+
+A grid that overhangs the sheet is allowed — the cells that fall outside come back partly empty rather than erroring, which is how you add padding. You get told when the grid overhangs, and when part of the sheet isn't covered.
+
+**Auto-detect** reads the grid off the sheet instead of asking for it, and runs automatically on any sheet you drop. A column of pixels that's entirely background — key colour or already transparent — can't be inside a sprite, so the content runs between those columns are the cells; same for rows. It sets cols and rows too.
+
+Two things it has to get right:
+
+- A gap *inside* a sprite, between two legs say, would otherwise read as a cell boundary. Real gutters are the widest gaps on the sheet and roughly uniform, so anything under half the widest gap is treated as part of the sprite. No fixed pixel threshold — it scales with the sheet.
+- Cell spacing comes from the first-to-last content run, which averages out the per-cell drift that generated sheets always have. Origin and cell size are then picked so every run fits inside its cell, so nothing gets clipped even when the drift is bad. If content is so uneven that cells would overlap, they're clamped to the spacing and you're told to check for a neighbour bleeding in.
+
+If the sprites touch with no gutter at all it finds one blob, and falls back to trimming the outer margin and dividing that by the cols you asked for. If the whole sheet reads as background, the key colour is wrong — fix it in **Look** and detect again.
+
+The demo loads a deliberately even grid, because auto-detect would trim it down to the sprites and hide the drift the align panel exists to fix.
 
 ## Align — onion skin
 
