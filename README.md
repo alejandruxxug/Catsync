@@ -25,7 +25,9 @@ Click any frame in the strip to select it. The reference frame is ghosted undern
 
 The search window is 6% of sprite size, and on anything above 192px the matching runs on a downscaled copy — otherwise the cost, which is (2R+1)² × pixels, freezes the tab on a high-resolution sheet. Precision ends up relative rather than absolute: exact at 48px, within 4px at 1024px, which is 0.4% and invisible once composited. Measured 44–108ms per frame from 48px to 1024px. Arrow keys give you exact control if you want it.
 
-Frame 0 is the anchor and can't be moved. The demo sheet ships with deliberate drift on cells 1–3 so you can see the feature work.
+**Every frame can be moved, frame 0 included.** It's still the alignment reference, but locking it meant a sprite clipped by the viewport edge could never be pulled back into frame. Tick **Move all frames together** to reframe the whole set without disturbing the relative alignment between frames — auto-align keeps working afterwards, since it positions each frame relative to wherever the reference currently sits. Offsets are clamped to one cell in each direction so a runaway drag can't lose a sprite off-screen.
+
+The demo sheet ships with deliberate drift on cells 1–3 so you can see the feature work.
 
 ## Viewport
 

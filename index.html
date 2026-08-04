@@ -341,6 +341,11 @@
             <span class="val" id="onionOpV">45</span>
           </div>
 
+          <div class="checkrow" style="margin:6px 0">
+            <input type="checkbox" id="moveAll">
+            <label for="moveAll" style="flex:none">Move all frames together</label>
+          </div>
+
           <div class="nudge">
             <button class="sp"></button><button data-dx="0" data-dy="-1">&uarr;</button><button class="sp"></button>
             <button data-dx="-1" data-dy="0">&larr;</button>
@@ -353,7 +358,7 @@
           <button id="autoOne" style="margin-top:8px">Auto-align this frame</button>
           <button id="autoAll">Auto-align all</button>
           <button id="resetAll">Reset all offsets</button>
-          <div class="hint">Drag the sprite, or use arrow keys once the canvas is focused. Offsets are whole pixels and apply to the preview and every export.</div>
+          <div class="hint">Drag the sprite, or use arrow keys once the canvas is focused (shift for a bigger step). Any frame can be moved, including frame 0 &mdash; tick <em>move all together</em> to reframe the whole set without losing alignment. Offsets are whole pixels and apply to the preview and every export.</div>
         </div>
       </div>
     </div>
@@ -891,17 +896,32 @@ function renderAlign() {
     x.strokeRect(rx + .5, ry + .5, rw - 1, rh - 1);
   }
 
-  $("selLbl").textContent = ri < 0 ? `${S.sel} · anchor` : `${S.sel} vs ${ri}`;
-  $("offLbl").innerHTML = `dx ${o.dx} &nbsp; dy ${o.dy}`;
-  const anchor = ri < 0;
-  ["autoOne", "resetOne"].forEach(id => $(id).disabled = anchor);
-  document.querySelectorAll(".nudge button[data-dx]").forEach(b => b.disabled = anchor);
+  $("selLbl").textContent = ri < 0 ? `${S.sel} · reference` : `${S.sel} vs ${ri}`;
+  $("offLbl").innerHTML = `dx ${o.dx} &nbsp; dy ${o.dy}` +
+    ($("moveAll").checked ? ` <span style="color:var(--dim)">· all</span>` : "");
+  // Only auto-align needs a reference frame. Moving is always allowed.
+  $("autoOne").disabled = ri < 0;
 }
 
+/* Keep a frame reachable — dragged far enough it leaves the cell entirely and
+   there's nothing left on screen to grab. */
+function clampOffset(o) {
+  const w = S.cellW || 64, h = S.cellH || 64;
+  o.dx = clamp(o.dx, -w, w);
+  o.dy = clamp(o.dy, -h, h);
+  return o;
+}
+
+/* Every frame can be moved, frame 0 included. It's still the alignment
+   reference, but locking it meant a sprite clipped by the viewport edge could
+   never be pulled back into frame. */
 function nudge(dx, dy) {
-  if (refIndexFor(S.sel) < 0) return;      // frame 0 is the anchor
-  const o = off(S.sel);
-  o.dx += dx; o.dy += dy;
+  const all = $("moveAll").checked;
+  S.offsets.forEach((o, i) => {
+    if (!all && i !== S.sel) return;
+    o.dx += dx; o.dy += dy;
+    clampOffset(o);
+  });
   afterOffsetChange();
 }
 
@@ -1696,6 +1716,7 @@ $("onionOp").addEventListener("input", () => { $("onionOpV").textContent = $("on
 document.querySelectorAll(".nudge button[data-dx]").forEach(b => {
   b.addEventListener("click", () => nudge(+b.dataset.dx, +b.dataset.dy));
 });
+$("moveAll").addEventListener("change", renderAlign);
 $("resetOne").addEventListener("click", () => { S.offsets[S.sel] = { dx: 0, dy: 0 }; afterOffsetChange(); });
 $("resetAll").addEventListener("click", () => { S.offsets = S.keyed.map(() => ({ dx: 0, dy: 0 })); afterOffsetChange(); });
 $("autoOne").addEventListener("click", () => autoAlignOne(S.sel, false));
@@ -1704,22 +1725,24 @@ $("autoAll").addEventListener("click", autoAlignAll);
 /* drag the sprite directly — whole pixels only */
 (() => {
   const cv = $("alignCv");
-  let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+  let dragging = false, sx = 0, sy = 0, startOffs = null;
   cv.addEventListener("pointerdown", e => {
-    if (refIndexFor(S.sel) < 0) return;
     dragging = true; cv.classList.add("drag"); cv.setPointerCapture(e.pointerId);
     sx = e.clientX; sy = e.clientY;
-    const o = off(S.sel); ox = o.dx; oy = o.dy;
+    startOffs = S.offsets.map(o => ({ dx: o.dx, dy: o.dy }));   // drag from where we began
     cv.focus();
   });
   cv.addEventListener("pointermove", e => {
-    if (!dragging) return;
+    if (!dragging || !startOffs) return;
     const r = cv.getBoundingClientRect();
     const px = (cv.width / r.width) / alignZoom;     // css px -> sprite px
-    S.offsets[S.sel] = {
-      dx: ox + Math.round((e.clientX - sx) * px),
-      dy: oy + Math.round((e.clientY - sy) * px),
-    };
+    const ddx = Math.round((e.clientX - sx) * px);
+    const ddy = Math.round((e.clientY - sy) * px);
+    const all = $("moveAll").checked;
+    S.offsets = startOffs.map((o, i) =>
+      (all || i === S.sel)
+        ? clampOffset({ dx: o.dx + ddx, dy: o.dy + ddy })
+        : { dx: o.dx, dy: o.dy });
     afterOffsetChange();
   });
   const end = e => { if (dragging) { dragging = false; cv.classList.remove("drag"); } };
