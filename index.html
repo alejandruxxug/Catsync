@@ -307,7 +307,7 @@
     </div>
 
     <div class="panel" style="margin-top:12px">
-      <h2>Sliced frames &mdash; quietest to loudest &middot; click to align</h2>
+      <h2>Sliced frames &mdash; source slices, uncut &middot; click to align</h2>
       <div id="thumbs"><div class="empty">No sheet loaded.</div></div>
     </div>
 
@@ -530,7 +530,10 @@ function drawThumbs() {
     const x = c.getContext("2d");
     x.imageSmoothingEnabled = false;
     const o = off(i);
-    x.drawImage(cv, o.dx, o.dy);       // thumbs show the aligned result
+    // The raw slice, uncut. Drawing it at its offset clipped whatever fell
+    // outside the cell, so the strip hid exactly the part you were trying to
+    // judge. Alignment belongs in the align canvas; this is the source frame.
+    x.drawImage(cv, 0, 0);
     const lbl = document.createElement("div");
     lbl.className = "lbl";
     lbl.textContent = i === 0 ? "0 · closed" : i;
