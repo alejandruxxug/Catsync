@@ -4,16 +4,34 @@ Sprite sheet + audio → lip-synced animation, ready to drop over footage in you
 
 ### → [alejandruxxug.github.io/Catsync](https://alejandruxxug.github.io/Catsync/)
 
-Or download `index.html` and double-click it. Same app either way — one file, vanilla JS, no dependencies, no build step, no server. Nothing you load ever leaves your machine; there's no network code in it at all.
+Or download [`catsync.html`](https://github.com/alejandruxxug/Catsync/releases/latest) and double-click it. Same app either way — one file, vanilla JS, no dependencies, no build step, no server. Nothing you load ever leaves your machine; there's no network code in it at all.
 
 Built for the cats in a class video about compilers, which is why frame 0 is "mouth closed" and everything is pixel-art shaped. It works on any sprite sheet.
+
+Repo layout: `catsync.html` is the whole app. `index.html` is just the landing page GitHub Pages serves at the root.
 
 ## Use
 
 1. **Load demo** to see the whole pipeline work before you have real art.
 2. Drag in your talking sprite sheet. It guesses the grid; fix it in **Slicing** if the guess is off.
-3. Drag in a WAV or MP3.
+3. Hit **Record**, or drag in a WAV or MP3.
 4. Hit Play, tune, export.
+
+## Recording
+
+Hit **Record** and talk. The take goes straight into the pipeline, the level meter goes amber near clipping and red past it, and **Save take (.wav)** gets it onto disk — a recording lives in the tab and nowhere else until you do, which is why leaving the page asks you to confirm.
+
+Three settings are explicitly turned **off** on the mic, and this matters more than it sounds:
+
+- **Auto gain control** normalizes loudness over time. Loud-against-quiet *is* the lip sync signal, so AGC is actively erasing what's being measured — it's the one that ruins a take.
+- **Noise suppression** gates room tone down to digital silence. The threshold is a hard gate placed relative to the noise floor, and a floor of exactly zero turns it into a cliff with nothing sensible to sit on.
+- **Echo cancellation** is tuned for calls and colours the voice.
+
+The mic is wired to the level meter and to nothing else — it never reaches your speakers, so there's no feedback loop and you don't need headphones.
+
+**Takes are re-encoded to WAV before anything else touches them.** MediaRecorder writes a live-stream container with no length in its header — the same hole that made the WebM export come out short. An `<audio>` element handed one of those reports `Infinity` for duration and refuses to seek, which breaks the waveform and the scrubber. The samples are already decoded by that point, so writing a plain WAV with a real header costs nothing and sidesteps the entire class of bug. Mono, since the analysis reduces to mono anyway.
+
+Recording needs a secure context. The hosted page is HTTPS so it's fine; from `file://` Chrome and Firefox allow it and Safari doesn't. Takes are capped at 10 minutes.
 
 Frames must be ordered **quietest to loudest** — frame 0 is mouth closed, last frame is widest. Any count from 2 up works.
 

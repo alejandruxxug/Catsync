@@ -1,0 +1,2465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>catsync</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1c1f25;
+    --panel2: #23272f;
+    --line: #2e333c;
+    --text: #e6e9ef;
+    --dim: #8b93a1;
+    --accent: #ff4fa3;
+    --accent2: #4fd1c5;
+    --warn: #f0b429;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.45 ui-sans-serif, -apple-system, "SF Pro Text", Segoe UI, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 15px; letter-spacing: .5px; }
+  header h1 span { color: var(--accent); }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header .spacer { flex: 1; }
+
+  main {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 14px;
+    padding: 14px 16px;
+    align-items: start;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .panel + .panel { margin-top: 12px; }
+  .panel h2 {
+    margin: 0 0 10px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--dim); font-weight: 600;
+  }
+
+  .drop {
+    border: 1.5px dashed var(--line);
+    border-radius: 6px;
+    padding: 14px 10px;
+    text-align: center;
+    color: var(--dim);
+    cursor: pointer;
+    transition: border-color .12s, color .12s, background .12s;
+    font-size: 12px;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); color: var(--text); background: #ff4fa30d; }
+  .drop.loaded { border-style: solid; border-color: var(--accent2); color: var(--accent2); }
+  .drop + .drop { margin-top: 8px; }
+
+  .row { display: flex; align-items: center; gap: 8px; margin: 9px 0; }
+  .row label { flex: 0 0 96px; color: var(--dim); font-size: 12px; }
+  .row .val { flex: 0 0 42px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+  input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
+  input[type=number] {
+    width: 100%; background: var(--panel2); border: 1px solid var(--line);
+    color: var(--text); border-radius: 4px; padding: 4px 6px; font: inherit;
+  }
+  input[type=color] {
+    width: 34px; height: 24px; padding: 0; border: 1px solid var(--line);
+    background: none; border-radius: 4px; cursor: pointer;
+  }
+  .checkrow { display: flex; align-items: center; gap: 7px; margin: 9px 0; color: var(--dim); }
+  .checkrow input { accent-color: var(--accent); }
+
+  /* ── mic ── */
+  .meter {
+    flex: 1; height: 8px; border-radius: 4px; background: var(--panel2);
+    border: 1px solid var(--line); overflow: hidden; min-width: 0;
+  }
+  .meter i { display: block; height: 100%; width: 0; background: var(--accent2); }
+  .meter.hot i { background: var(--warn); }
+  .meter.clip i { background: #ff5c5c; }
+  button.rec { background: #ff4f4f; border-color: #ff4f4f; color: #2a0a0a; animation: pulse 1.4s ease-in-out infinite; }
+  button.rec:hover:not(:disabled) { background: #ff6b6b; border-color: #ff6b6b; }
+  @keyframes pulse { 50% { opacity: .62; } }
+  @media (prefers-reduced-motion: reduce) { button.rec { animation: none; } }
+
+  button {
+    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--text); font: inherit; font-weight: 500;
+    cursor: pointer; transition: background .12s, border-color .12s;
+  }
+  button:hover:not(:disabled) { background: #2c313a; border-color: #3c434e; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #1a0a12; }
+  button.primary:hover:not(:disabled) { background: #ff69b0; border-color: #ff69b0; }
+  button + button { margin-top: 7px; }
+  .hint { color: var(--dim); font-size: 11px; margin-top: 5px; line-height: 1.4; }
+
+  .stage {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; display: flex; flex-direction: column; gap: 10px;
+  }
+  #previewWrap {
+    min-height: 220px; max-height: 52vh;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel2); border-radius: 6px; padding: 12px; overflow: auto;
+  }
+  /* display size only — the canvas keeps its full export resolution */
+  #preview { image-rendering: pixelated; display: block; }
+  #preview.fit { max-width: 100%; max-height: calc(52vh - 24px); width: auto; height: auto; }
+  #preview.checker {
+    background-image:
+      linear-gradient(45deg, #33383f 25%, transparent 25%),
+      linear-gradient(-45deg, #33383f 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #33383f 75%),
+      linear-gradient(-45deg, transparent 75%, #33383f 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  }
+  #wave { width: 100%; height: 84px; display: block; border-radius: 6px; background: var(--panel2); cursor: pointer; }
+
+  .transport { display: flex; align-items: center; gap: 10px; }
+  .transport button { width: auto; padding: 6px 16px; }
+  .transport .time { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 12px; }
+
+  .stats { display: flex; gap: 18px; flex-wrap: wrap; padding-top: 2px; }
+  .stat .k { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .6px; }
+  .stat .v { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+  #thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+  #thumbs canvas {
+    image-rendering: pixelated; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 4px; height: 62px; width: auto;
+    cursor: pointer; transition: border-color .12s;
+  }
+  #thumbs figure.sel canvas { border-color: var(--accent); }
+  #thumbs figure:hover canvas { border-color: #4a515c; }
+  #thumbs .lbl { color: var(--dim); font-size: 10px; text-align: center; }
+  #thumbs figure.sel .lbl { color: var(--accent); }
+  #thumbs .off { color: var(--accent2); font-size: 9px; text-align: center; font-variant-numeric: tabular-nums; }
+  #thumbs figure { margin: 0; }
+
+  /* ── slicing ── */
+  .slicegrid { display: grid; grid-template-columns: 1fr 236px; gap: 12px; align-items: start; }
+  @media (max-width: 700px) { .slicegrid { grid-template-columns: 1fr; } }
+  #sliceWrap {
+    background: var(--panel2); border-radius: 6px; padding: 10px;
+    display: flex; align-items: center; justify-content: center; min-height: 150px; overflow: auto;
+  }
+  #sliceCv {
+    image-rendering: pixelated; display: block; cursor: grab; touch-action: none;
+    max-width: 100%; max-height: 40vh; width: auto; height: auto;
+  }
+  #sliceCv.drag { cursor: grabbing; }
+  #sliceCv.resize { cursor: nwse-resize; }
+  #sliceCv:focus { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .pairs { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 6px 7px; align-items: center; margin: 9px 0; }
+  .pairs label { color: var(--dim); font-size: 12px; white-space: nowrap; }
+
+  /* ── align ── */
+  .aligngrid { display: grid; grid-template-columns: 1fr 190px; gap: 12px; align-items: start; }
+  @media (max-width: 700px) { .aligngrid { grid-template-columns: 1fr; } }
+  #alignWrap {
+    background: var(--panel2); border-radius: 6px; padding: 10px;
+    display: flex; align-items: center; justify-content: center; min-height: 220px; overflow: auto;
+  }
+  #alignCv {
+    image-rendering: pixelated; display: block; cursor: grab; touch-action: none;
+    max-width: 100%; max-height: 42vh; width: auto; height: auto;
+  }
+  #alignCv.drag { cursor: grabbing; }
+  #alignCv:focus { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .nudge { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; }
+  .nudge button { padding: 5px 0; font-size: 13px; line-height: 1; }
+  .nudge .sp { visibility: hidden; }
+  .offreadout {
+    text-align: center; font-variant-numeric: tabular-nums; font-size: 12px;
+    color: var(--accent2); padding: 5px; background: var(--panel2); border-radius: 4px;
+  }
+  select {
+    width: 100%; background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 4px; padding: 4px 6px; font: inherit;
+  }
+
+  .msg { padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px; display: none; }
+  .msg.err { display: block; background: #ff4f4f1a; border: 1px solid #ff4f4f55; color: #ff9a9a; }
+  .msg.ok  { display: block; background: #4fd1c51a; border: 1px solid #4fd1c555; color: var(--accent2); }
+  .msg.work{ display: block; background: #f0b4291a; border: 1px solid #f0b42955; color: var(--warn); }
+  .empty { color: var(--dim); font-size: 12px; text-align: center; padding: 30px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>cat<span>sync</span></h1>
+  <div class="sub">sprite sheet + audio &rarr; lip&#8209;synced overlay</div>
+  <div class="spacer"></div>
+  <div class="sub" id="hdrNote">offline &middot; nothing leaves this machine</div>
+</header>
+
+<main>
+  <!-- ─────────── controls ─────────── -->
+  <div>
+    <div class="panel">
+      <h2>Input</h2>
+      <div class="drop" id="dropSheet">
+        <strong>Sprite sheet</strong><br>drag image or click
+      </div>
+      <div class="drop" id="dropAudio">
+        <strong>Audio</strong><br>drag WAV / MP3 or click
+      </div>
+      <div class="row" style="margin-top:8px; gap:8px">
+        <button id="recBtn" style="width:auto; flex:0 0 auto; padding:6px 12px">&#9679; Record</button>
+        <div class="meter" id="meter"><i></i></div>
+        <span class="val" id="recTime" style="flex:0 0 40px">&mdash;</span>
+      </div>
+      <button id="saveTake" hidden>Save take (.wav)</button>
+      <div class="hint">Record straight into the page. Nothing is uploaded &mdash; it never leaves the tab. The mic is never routed to your speakers, so headphones aren't required.</div>
+      <button id="demoBtn" style="margin-top:12px">Load demo</button>
+      <div class="hint">Generates a throwaway sheet + clip so you can test the whole pipeline before you have real assets.</div>
+      <div class="msg" id="inputMsg"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Sync</h2>
+      <div class="row">
+        <label>FPS</label>
+        <input type="range" id="fps" min="12" max="60" step="1" value="30">
+        <span class="val" id="fpsV">30</span>
+      </div>
+      <div class="row">
+        <label>Silence thr.</label>
+        <input type="range" id="thr" min="0" max="60" step="1" value="8">
+        <span class="val" id="thrV">8</span>
+      </div>
+      <div class="hint" style="margin:-4px 0 8px">Auto-set from each new file's noise floor. It's a hard gate, so it can flip suddenly &mdash; nudge in small steps and watch <em>mouth&nbsp;closed</em>.</div>
+      <div class="row">
+        <label>Min hold</label>
+        <input type="range" id="hold" min="1" max="8" step="1" value="2">
+        <span class="val" id="holdV">2</span>
+      </div>
+      <div class="hint">Mouth strobing? Raise hold. Mouth never closing between sentences? Raise threshold.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Look</h2>
+      <div class="row">
+        <label>Key color</label>
+        <input type="color" id="key" value="#ff00ff">
+        <input type="range" id="tol" min="0" max="100" step="1" value="10" style="margin-left:6px">
+        <span class="val" id="tolV">10</span>
+      </div>
+      <div class="row">
+        <label>Feather</label>
+        <input type="range" id="feather" min="0" max="40" step="1" value="0">
+        <span class="val" id="featherV">0</span>
+      </div>
+      <div class="checkrow" style="margin-top:-2px">
+        <input type="checkbox" id="despill" checked>
+        <label for="despill" style="flex:none">Despill edges</label>
+      </div>
+      <div class="hint" style="margin:-4px 0 8px">0 keeps the hard cutoff, right for true pixel art. Raise it for anti-aliased or high-res sprites to soften the edge. Despill pulls the key color out of partly&#8209;transparent pixels so you don't get a fringe &mdash; it only touches the edge, so colors inside the sprite are safe.</div>
+      <div class="row">
+        <label>Scale</label>
+        <input type="range" id="scale" min="1" max="8" step="1" value="1">
+        <span class="val" id="scaleV">1&times;</span>
+      </div>
+      <div class="checkrow">
+        <input type="checkbox" id="checker" checked>
+        <label for="checker" style="flex:none">Show transparency</label>
+      </div>
+      <div class="checkrow">
+        <input type="checkbox" id="fitView" checked>
+        <label for="fitView" style="flex:none">Fit preview to window</label>
+      </div>
+      <div class="hint">Display only. Export resolution is set by <em>Scale</em> and the viewport, and is shown as <em>Output</em> below the preview.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Viewport &mdash; what gets exported</h2>
+      <div class="row">
+        <label style="flex:0 0 30px">X</label><input type="number" id="cropX" value="0">
+        <label style="flex:0 0 30px;text-align:right">Y</label><input type="number" id="cropY" value="0">
+      </div>
+      <div class="row">
+        <label style="flex:0 0 30px">W</label><input type="number" id="cropW" value="0" min="1">
+        <label style="flex:0 0 30px;text-align:right">H</label><input type="number" id="cropH" value="0" min="1">
+      </div>
+      <div class="offreadout" id="cropLbl">&mdash;</div>
+      <div class="checkrow" style="margin-top:8px">
+        <input type="checkbox" id="lockView">
+        <label for="lockView" style="flex:none">Lock the cut</label>
+      </div>
+      <div class="hint" style="margin-top:-2px">While unlocked the preview shows the <em>whole</em> frame with the viewport drawn as a guide, so nothing is hidden while you're still moving sprites around. Lock it to see the actual cut. <strong>Exports always apply the viewport either way.</strong></div>
+      <button id="fitCrop" style="margin-top:8px">Fit to content</button>
+      <button id="fullCrop">Reset to full cell</button>
+    </div>
+
+    <div class="panel">
+      <h2>Export</h2>
+      <button class="primary" id="expPng" disabled>Export PNG sequence (.zip)</button>
+      <div class="hint">True transparency. Import into Premiere / Resolve / CapCut as an image sequence.</div>
+      <button id="expWebm" disabled style="margin-top:10px">Export WebM</button>
+      <div class="hint"><strong style="color:var(--warn)">No transparency.</strong> Browsers can't record an alpha channel, so the key color is baked in as a solid background &mdash; chroma&#8209;key it in your editor. Records in real time.</div>
+      <div class="msg" id="expMsg"></div>
+    </div>
+  </div>
+
+  <!-- ─────────── stage ─────────── -->
+  <div>
+    <div class="stage">
+      <div id="previewWrap"><div class="empty" id="emptyNote">Load a sprite sheet and an audio file, or hit <strong>Load demo</strong>.</div><canvas id="preview" hidden></canvas></div>
+      <canvas id="wave"></canvas>
+      <div class="transport">
+        <button id="playBtn" disabled>Play</button>
+        <span class="time" id="timeLbl">0.00 / 0.00 s</span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="time" id="frameLbl"></span>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">Duration</div><div class="v" id="stDur">&mdash;</div></div>
+        <div class="stat"><div class="k">Frames</div><div class="v" id="stFrames">&mdash;</div></div>
+        <div class="stat"><div class="k">Mouth closed</div><div class="v" id="stClosed">&mdash;</div></div>
+        <div class="stat"><div class="k">Sprites</div><div class="v" id="stSprites">&mdash;</div></div>
+        <div class="stat"><div class="k">Output</div><div class="v" id="stOut">&mdash;</div></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h2>Slicing &mdash; where the cells sit on the sheet</h2>
+      <div class="slicegrid">
+        <div id="sliceWrap">
+          <div class="empty" id="sliceEmpty">Load a sprite sheet to set up the grid.</div>
+          <canvas id="sliceCv" tabindex="0" hidden></canvas>
+        </div>
+        <div>
+          <div class="pairs" style="margin-top:0">
+            <label for="cols">Cols</label><input type="number" id="cols" value="4" min="1" max="32">
+            <label for="rows">Rows</label><input type="number" id="rows" value="1" min="1" max="32">
+            <label for="gW">Cell&nbsp;W</label><input type="number" id="gW" value="0" min="1">
+            <label for="gH">H</label><input type="number" id="gH" value="0" min="1">
+            <label for="gX">Origin&nbsp;X</label><input type="number" id="gX" value="0">
+            <label for="gY">Y</label><input type="number" id="gY" value="0">
+            <label for="gGX">Gutter&nbsp;X</label><input type="number" id="gGX" value="0" min="0">
+            <label for="gGY">Y</label><input type="number" id="gGY" value="0" min="0">
+          </div>
+          <div class="offreadout" id="gridLbl">&mdash;</div>
+          <button id="detectGrid" style="margin-top:8px">Auto-detect grid</button>
+          <button id="evenGrid">Reset to even grid</button>
+          <div class="hint">Drag the grid to move it; drag the square handle on the first cell to resize every cell. Arrow keys nudge the origin once the sheet is focused. <em>Cols</em>, <em>rows</em> and <em>gutter</em> refit the cells to the sheet; <em>cell&nbsp;W/H</em> and <em>origin</em> are yours to set exactly.</div>
+          <div class="msg" id="sliceMsg"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h2>Sliced frames &mdash; source slices, uncut &middot; click to align</h2>
+      <div id="thumbs"><div class="empty">No sheet loaded.</div></div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h2>Align &mdash; onion skin</h2>
+      <div class="aligngrid">
+        <div id="alignWrap">
+          <div class="empty" id="alignEmpty">Pick a frame above to line it up against the reference.</div>
+          <canvas id="alignCv" tabindex="0" hidden></canvas>
+        </div>
+        <div>
+          <div class="row" style="margin-top:0">
+            <label style="flex:0 0 62px">Frame</label>
+            <button id="prevFrame" style="width:auto;padding:4px 9px">&lsaquo;</button>
+            <span class="val" id="selLbl" style="flex:1;text-align:center">&mdash;</span>
+            <button id="nextFrame" style="width:auto;padding:4px 9px">&rsaquo;</button>
+          </div>
+          <div class="row">
+            <label style="flex:0 0 62px">Ghost</label>
+            <select id="refMode">
+              <option value="0">Frame 0</option>
+              <option value="prev">Previous</option>
+            </select>
+          </div>
+          <div class="row">
+            <label style="flex:0 0 62px">View</label>
+            <select id="onionMode">
+              <option value="ghost">Ghost</option>
+              <option value="diff">Difference</option>
+            </select>
+          </div>
+          <div class="row">
+            <label style="flex:0 0 62px">Opacity</label>
+            <input type="range" id="onionOp" min="10" max="90" step="5" value="45">
+            <span class="val" id="onionOpV">45</span>
+          </div>
+
+          <div class="checkrow" style="margin:6px 0">
+            <input type="checkbox" id="moveAll">
+            <label for="moveAll" style="flex:none">Move all frames together</label>
+          </div>
+
+          <div class="nudge">
+            <button class="sp"></button><button data-dx="0" data-dy="-1">&uarr;</button><button class="sp"></button>
+            <button data-dx="-1" data-dy="0">&larr;</button>
+            <button id="resetOne" title="Reset this frame">&#8226;</button>
+            <button data-dx="1" data-dy="0">&rarr;</button>
+            <button class="sp"></button><button data-dx="0" data-dy="1">&darr;</button><button class="sp"></button>
+          </div>
+          <div class="offreadout" id="offLbl">dx 0 &nbsp; dy 0</div>
+
+          <button id="autoOne" style="margin-top:8px">Auto-align this frame</button>
+          <button id="autoAll">Auto-align all</button>
+          <button id="resetAll">Reset all offsets</button>
+          <div class="hint">Drag the sprite, or use arrow keys once the canvas is focused (shift for a bigger step). Any frame can be moved, including frame 0 &mdash; tick <em>move all together</em> to reframe the whole set without losing alignment. Offsets are whole pixels and apply to the preview and every export.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<audio id="audioEl" hidden></audio>
+
+<script>
+"use strict";
+
+/* ══════════════════════════════════════════════════════════
+   state
+   ══════════════════════════════════════════════════════════ */
+const S = {
+  sheetImg: null,      // HTMLImageElement / canvas of the raw sheet
+  slices: [],          // [canvas] raw cells, unkeyed
+  keyed: [],           // [canvas] cells with key color knocked to alpha 0
+  audioBuffer: null,   // decoded AudioBuffer
+  audioURL: null,
+  takeBlob: null,      // WAV of the last mic recording, so a take can be saved
+  rms: null,           // Float32Array, one normalized 0-100 value per video frame
+  mapping: null,       // Int16Array, sprite index per video frame
+  fps: 30,
+  offsets: [],         // [{dx,dy}] per sprite, whole pixels — manual alignment
+  sel: 0,              // sprite currently being aligned
+  crop: null,          // {x,y,w,h} in sprite px — the exported viewport
+  cellW: 0, cellH: 0,
+  grid: null,          // {ox,oy,cw,ch,gx,gy} — where the cells actually sit on the sheet
+};
+
+const DB_FLOOR = -60;   // anything quieter than this is treated as pure silence
+const HYST = 3;         // hysteresis margin, on the 0-100 loudness scale
+
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+/* ══════════════════════════════════════════════════════════
+   1. sprite sheet: load, slice, key
+   ══════════════════════════════════════════════════════════ */
+
+/* ── the grid ────────────────────────────────────────────
+   A sheet is not always W/cols × H/rows. Generated sheets come back with a
+   margin around the outside, gutters between cells, or a size that simply
+   doesn't divide evenly — and the old slicer refused all three. The grid is
+   its own geometry now: an origin, a cell size, and a gutter. cols × rows
+   only says how many cells to step through. */
+
+function gridDims() {
+  return {
+    cols: clamp(parseInt($("cols").value, 10) || 1, 1, 32),
+    rows: clamp(parseInt($("rows").value, 10) || 1, 1, 32),
+  };
+}
+
+const cellRect = (g, c, r) => ({
+  x: g.ox + c * (g.cw + g.gx),
+  y: g.oy + r * (g.ch + g.gy),
+  w: g.cw, h: g.ch,
+});
+
+/* Cells fill the sheet: whatever the margin and gutters leave over is split
+   evenly. This is what cols / rows / gutter fall back to, so a grid never
+   silently runs off the edge just because you asked for one more column. */
+function fitCellsToSheet() {
+  const g = S.grid, { cols, rows } = gridDims();
+  const W = S.sheetImg.width, H = S.sheetImg.height;
+  g.cw = Math.max(1, Math.floor((W - g.ox - g.gx * (cols - 1)) / cols));
+  g.ch = Math.max(1, Math.floor((H - g.oy - g.gy * (rows - 1)) / rows));
+}
+
+function evenGrid() {
+  S.grid = { ox: 0, oy: 0, cw: 1, ch: 1, gx: 0, gy: 0 };
+  fitCellsToSheet();
+}
+
+function syncGridInputs() {
+  const g = S.grid;
+  if (!g) return;
+  $("gW").value = g.cw; $("gH").value = g.ch;
+  $("gX").value = g.ox; $("gY").value = g.oy;
+  $("gGX").value = g.gx; $("gGY").value = g.gy;
+}
+
+/* Grid edits from the number fields. `refit` is set by the controls that
+   change how much room the cells have (cols, rows, gutter) — origin and cell
+   size are taken exactly as typed. */
+function readGridInputs(refit) {
+  if (!S.grid || !S.sheetImg) return;
+  const g = S.grid;
+  const W = S.sheetImg.width, H = S.sheetImg.height;
+  g.ox = clamp(parseInt($("gX").value, 10) || 0, -W, W - 1);
+  g.oy = clamp(parseInt($("gY").value, 10) || 0, -H, H - 1);
+  g.gx = clamp(parseInt($("gGX").value, 10) || 0, 0, W);
+  g.gy = clamp(parseInt($("gGY").value, 10) || 0, 0, H);
+  if (refit) fitCellsToSheet();
+  else {
+    g.cw = clamp(parseInt($("gW").value, 10) || 1, 1, W * 2);
+    g.ch = clamp(parseInt($("gH").value, 10) || 1, 1, H * 2);
+  }
+  syncGridInputs();
+  sliceSheet();
+  updateReady();
+}
+
+function sliceSheet() {
+  if (!S.sheetImg) return;
+  const { cols, rows } = gridDims();
+  const W = S.sheetImg.width, H = S.sheetImg.height;
+
+  if (cols * rows < 2) return err("slice", "Need at least 2 frames. Check your columns and rows.");
+  if (!S.grid) evenGrid();
+  const g = S.grid;
+  const cw = g.cw, ch = g.ch;
+
+  S.slices = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const R = cellRect(g, c, r);
+      const cv = document.createElement("canvas");
+      cv.width = cw; cv.height = ch;
+      const x = cv.getContext("2d");
+      x.imageSmoothingEnabled = false;
+      // A cell hanging off the sheet draws only the part that exists, in the
+      // right place — drawImage clips source and destination together. So an
+      // overhanging grid gives you a padded frame, not an error.
+      x.drawImage(S.sheetImg, R.x, R.y, cw, ch, 0, 0, cw, ch);
+      S.slices.push(cv);
+    }
+  }
+  // keep alignment across re-keying; only reset when the sheet really changed
+  if (!S.offsets || S.offsets.length !== S.slices.length) {
+    S.offsets = S.slices.map(() => ({ dx: 0, dy: 0 }));
+    S.sel = 0;
+  }
+  if (!S.crop || S.cellW !== cw || S.cellH !== ch) {
+    S.cellW = cw; S.cellH = ch;
+    S.crop = { x: 0, y: 0, w: cw, h: ch };
+    syncCropInputs();
+  }
+
+  syncGridInputs();
+  const last = cellRect(g, cols - 1, rows - 1);
+  const overW = Math.max(0, last.x + cw - W), overH = Math.max(0, last.y + ch - H);
+  const leftW = W - (last.x + cw), leftH = H - (last.y + ch);
+  $("gridLbl").textContent = `${cols * rows} cells · ${cw}×${ch} px`;
+
+  if (overW > 0 || overH > 0 || g.ox < 0 || g.oy < 0) {
+    msg("slice", "work", `The grid runs past the edge of the ${W}×${H} sheet — those cells come out partly empty.`);
+  } else if (leftW > 0 || leftH > 0) {
+    const bits = [leftW > 0 ? `${leftW}px on the right` : "", leftH > 0 ? `${leftH}px at the bottom` : ""].filter(Boolean);
+    msg("slice", "work", `${bits.join(" and ")} of the sheet isn't covered by the grid.`);
+  } else {
+    clearMsg("slice");
+  }
+
+  drawSliceView();
+  applyKey();
+}
+
+/* ── the sheet view: the grid drawn on the sheet, draggable ── */
+
+function drawSliceView() {
+  const cv = $("sliceCv");
+  if (!S.sheetImg) { cv.hidden = true; $("sliceEmpty").style.display = ""; return; }
+  cv.hidden = false;
+  $("sliceEmpty").style.display = "none";
+
+  const W = S.sheetImg.width, H = S.sheetImg.height;
+  // Small sheets get an integer zoom so the cell edges are actually draggable;
+  // big ones are capped and CSS shrinks them the rest of the way to the panel.
+  const z = (W <= 700 && H <= 480)
+    ? Math.max(1, Math.min(Math.floor(700 / W), Math.floor(480 / H)))
+    : Math.min(1, 880 / W, 620 / H);
+  cv.width = Math.max(1, Math.round(W * z));
+  cv.height = Math.max(1, Math.round(H * z));
+
+  const x = cv.getContext("2d");
+  x.imageSmoothingEnabled = z < 1;   // an honest downscale beats aliased pixels here
+  x.fillStyle = "#15181d";
+  x.fillRect(0, 0, cv.width, cv.height);
+  x.drawImage(S.sheetImg, 0, 0, cv.width, cv.height);
+
+  const g = S.grid;
+  if (!g) return;
+  const { cols, rows } = gridDims();
+  const lw = Math.max(1, cv.width / 500);
+
+  // dim everything the grid doesn't pick up
+  x.save();
+  x.beginPath();
+  x.rect(0, 0, cv.width, cv.height);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const R = cellRect(g, c, r);
+      x.rect(R.x * z, R.y * z, R.w * z, R.h * z);
+    }
+  }
+  x.fillStyle = "#0b0d10bb";
+  x.fill("evenodd");
+  x.restore();
+
+  x.lineWidth = lw;
+  x.font = `${Math.max(9, Math.round(cv.width / 60))}px ui-sans-serif, sans-serif`;
+  x.textBaseline = "top";
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const R = cellRect(g, c, r), i = r * cols + c;
+      x.strokeStyle = i === S.sel ? "#ff4fa3" : "#4fd1c5cc";
+      x.strokeRect(R.x * z + lw / 2, R.y * z + lw / 2, R.w * z - lw, R.h * z - lw);
+      x.fillStyle = i === S.sel ? "#ff4fa3" : "#4fd1c5aa";
+      x.fillText(String(i), R.x * z + lw * 2, R.y * z + lw * 2);
+    }
+  }
+
+  // resize handle, bottom-right of the first cell
+  const h0 = cellRect(g, 0, 0);
+  const hs = handleSize() * z;
+  x.fillStyle = "#ff4fa3";
+  x.fillRect((h0.x + h0.w) * z - hs, (h0.y + h0.h) * z - hs, hs, hs);
+}
+
+/* grab area for the resize handle, in sheet px — scaled so it stays the same
+   size on screen whether the sheet is 192px or 4096px wide */
+function handleSize() {
+  return Math.max(3, Math.round((S.sheetImg ? S.sheetImg.width : 256) / 90));
+}
+
+/* ── auto-detect ─────────────────────────────────────────
+   Read the grid off the sheet instead of asking for it: a column of pixels
+   that is entirely background can't be inside a sprite, so the content runs
+   between those columns are the cells. */
+
+let sheetData = null;
+function sheetPixels() {
+  if (sheetData) return sheetData;
+  const img = S.sheetImg;
+  const cv = document.createElement("canvas");
+  cv.width = img.width; cv.height = img.height;
+  const x = cv.getContext("2d");
+  x.imageSmoothingEnabled = false;
+  x.drawImage(img, 0, 0);
+  sheetData = x.getImageData(0, 0, cv.width, cv.height);
+  return sheetData;
+}
+
+function runsOf(mask) {
+  const out = [];
+  let s = -1;
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i]) { if (s < 0) s = i; }
+    else if (s >= 0) { out.push({ s, e: i - 1 }); s = -1; }
+  }
+  if (s >= 0) out.push({ s, e: mask.length - 1 });
+  return out;
+}
+
+/* A gap inside a sprite — between two legs, say — splits a cell into two runs
+   and would be read as two cells. Real gutters are the widest gaps on the
+   sheet and roughly uniform, so anything under half the widest gap is treated
+   as part of the sprite. No fixed pixel threshold: it scales with the sheet. */
+function mergeRuns(runs) {
+  if (runs.length < 3) return runs;
+  let widest = 0;
+  for (let i = 1; i < runs.length; i++) widest = Math.max(widest, runs[i].s - runs[i-1].e - 1);
+  const t = widest / 2;
+  const out = [{ ...runs[0] }];
+  for (let i = 1; i < runs.length; i++) {
+    const tail = out[out.length - 1];
+    if (runs[i].s - tail.e - 1 < t) tail.e = runs[i].e;
+    else out.push({ ...runs[i] });
+  }
+  return out;
+}
+
+/* Turn content runs into origin / cell size / gutter along one axis.
+   Pitch comes from first-to-last run start, which averages out the per-cell
+   drift that makes generated sheets annoying. Origin and size are then chosen
+   so that every run fits inside its cell — no sprite gets clipped. */
+function axisFromRuns(runs, want, limit) {
+  if (!runs.length) return null;
+  if (runs.length === 1) {
+    // one blob: the sprites touch. Keep the count asked for and just trim the margin.
+    const total = runs[0].e - runs[0].s + 1;
+    return { o: runs[0].s, size: Math.max(1, Math.floor(total / want)), gap: 0, n: want, tight: false };
+  }
+  const n = runs.length;
+  const pitch = Math.max(1, Math.round((runs[n-1].s - runs[0].s) / (n - 1)));
+  let o = Infinity;
+  for (let k = 0; k < n; k++) o = Math.min(o, runs[k].s - k * pitch);
+  o = clamp(Math.round(o), 0, limit - 1);
+  let size = 1;
+  for (let k = 0; k < n; k++) size = Math.max(size, runs[k].e + 1 - (o + k * pitch));
+  const tight = size > pitch;              // cells would overlap; clamp and say so
+  size = Math.min(size, pitch);
+  return { o, size, gap: Math.max(0, pitch - size), n, tight };
+}
+
+/* A new sheet invalidates everything downstream — the old alignment offsets
+   and viewport belong to cells that no longer exist. */
+function newSheet(img) {
+  S.sheetImg = img;
+  sheetData = null;
+  S.grid = null;
+  S.offsets = [];
+  S.crop = null;
+  S.sel = 0;
+  clearMsg("slice");
+}
+
+function fallbackGrid(why) {
+  evenGrid();
+  syncGridInputs();
+  sliceSheet();
+  msg("slice", "work", why + " Fell back to an even grid — set cols, rows and cell size by hand.");
+  return false;
+}
+
+function detectGrid(onLoad) {
+  if (!S.sheetImg) return false;
+  const d = sheetPixels(), W = d.width, H = d.height, a = d.data;
+  const hex = $("key").value;
+  const kr = parseInt(hex.slice(1, 3), 16),
+        kg = parseInt(hex.slice(3, 5), 16),
+        kb = parseInt(hex.slice(5, 7), 16);
+  const inner = (parseInt($("tol").value, 10) / 100) * 441.673;
+  const inner2 = inner * inner;
+
+  const colHas = new Uint8Array(W), rowHas = new Uint8Array(H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      if (a[i+3] < 8) continue;                       // already transparent
+      const dr = a[i] - kr, dg = a[i+1] - kg, db = a[i+2] - kb;
+      if (dr*dr + dg*dg + db*db <= inner2) continue;  // key colour
+      colHas[x] = 1; rowHas[y] = 1;
+    }
+  }
+
+  const cur = gridDims();
+  const cx = axisFromRuns(mergeRuns(runsOf(colHas)), cur.cols, W);
+  const cy = axisFromRuns(mergeRuns(runsOf(rowHas)), cur.rows, H);
+  const bad = !cx || !cy
+    ? "The whole sheet reads as background — check the key colour and tolerance in Look."
+    : (cx.n * cy.n < 2)
+      ? "Couldn't find a gutter to cut on."
+      : null;
+  if (bad) {
+    if (onLoad) return fallbackGrid(bad);
+    err("slice", bad + " Set cols, rows and cell size by hand, or lower the tolerance so the gutters read as background.");
+    return false;
+  }
+
+  $("cols").value = cx.n; $("rows").value = cy.n;
+  S.grid = { ox: cx.o, oy: cy.o, cw: cx.size, ch: cy.size, gx: cx.gap, gy: cy.gap };
+  syncGridInputs();
+  sliceSheet();
+  updateReady();
+  const note = (cx.tight || cy.tight)
+    ? " Cells were touching, so they're clamped to the spacing — check frames for a neighbour bleeding in."
+    : "";
+  msg("slice", "ok", `Detected ${cx.n}×${cy.n} cells of ${cx.size}×${cy.size}px` +
+    ((cx.gap || cy.gap) ? ` with a ${cx.gap}×${cy.gap}px gutter.` : ".") + note);
+  return true;
+}
+
+const off = i => (S.offsets[i] || { dx: 0, dy: 0 });
+
+function applyKey() {
+  if (!S.slices.length) return;
+  const hex = $("key").value;
+  const kr = parseInt(hex.slice(1, 3), 16),
+        kg = parseInt(hex.slice(3, 5), 16),
+        kb = parseInt(hex.slice(5, 7), 16);
+  // tolerance / feather are 0-100 over the RGB distance range
+  const MAXD = 441.673;                       // sqrt(3*255^2)
+  const tol = parseInt($("tol").value, 10);
+  const feather = parseInt($("feather").value, 10);
+  const inner = (tol / 100) * MAXD;
+  const outer = inner + (feather / 100) * MAXD;
+  const inner2 = inner * inner;
+  const doFeather = feather > 0;
+  const doDespill = doFeather && $("despill").checked;
+
+  const canDespill = doDespill;
+
+  S.keyed = S.slices.map(src => {
+    const cv = document.createElement("canvas");
+    cv.width = src.width; cv.height = src.height;
+    const x = cv.getContext("2d");
+    x.drawImage(src, 0, 0);
+    const img = x.getImageData(0, 0, cv.width, cv.height);
+    const d = img.data;
+
+    for (let i = 0; i < d.length; i += 4) {
+      const dr = d[i] - kr, dg = d[i+1] - kg, db = d[i+2] - kb;
+      const dist2 = dr*dr + dg*dg + db*db;
+
+      if (!doFeather) {
+        // hard cutoff — the right answer for true pixel art
+        if (dist2 <= inner2) d[i+3] = 0;
+        continue;
+      }
+
+      if (dist2 <= inner2) { d[i+3] = 0; continue; }
+      const dist = Math.sqrt(dist2);
+      if (dist >= outer) continue;                    // fully opaque, leave alone
+
+      const a = (dist - inner) / (outer - inner);     // 0 at the key, 1 at the edge
+      d[i+3] = Math.round(d[i+3] * a);
+
+      // Despill only the partly-transparent band, scaled by how transparent it
+      // is. Opaque interior pixels are never touched, so a genuinely pink nose
+      // survives a magenta key.
+      //
+      // Desaturate toward the pixel's own mean rather than clamping the key's
+      // dominant channels down: with a magenta key those are R and B, so
+      // clamping them collapses toward the lone dark G channel and leaves a
+      // dark halo. Pivoting on the mean holds luminance exactly and just
+      // drains the colour cast.
+      if (canDespill) {
+        const mean = (d[i] + d[i+1] + d[i+2]) / 3;
+        const keep = a;                                // = 1 - strength
+        d[i]   = mean + (d[i]   - mean) * keep;
+        d[i+1] = mean + (d[i+1] - mean) * keep;
+        d[i+2] = mean + (d[i+2] - mean) * keep;
+      }
+    }
+
+    x.putImageData(img, 0, 0);
+    return cv;
+  });
+
+  idCache.clear(); workCache.clear();   // keyed pixels changed, cached copies are stale
+  S.sel = clamp(S.sel, 0, S.keyed.length - 1);
+  drawThumbs();
+  renderAlign();
+  $("stSprites").textContent = S.keyed.length;
+  remap();
+  resizePreview();
+  drawFrameAt(currentFrame());
+}
+
+function drawThumbs() {
+  const box = $("thumbs");
+  box.innerHTML = "";
+  S.keyed.forEach((cv, i) => {
+    const fig = document.createElement("figure");
+    if (i === S.sel) fig.className = "sel";
+    const c = document.createElement("canvas");
+    c.width = cv.width; c.height = cv.height;
+    const x = c.getContext("2d");
+    x.imageSmoothingEnabled = false;
+    const o = off(i);
+    // The raw slice, uncut. Drawing it at its offset clipped whatever fell
+    // outside the cell, so the strip hid exactly the part you were trying to
+    // judge. Alignment belongs in the align canvas; this is the source frame.
+    x.drawImage(cv, 0, 0);
+    const lbl = document.createElement("div");
+    lbl.className = "lbl";
+    lbl.textContent = i === 0 ? "0 · closed" : i;
+    const ol = document.createElement("div");
+    ol.className = "off";
+    ol.textContent = (o.dx || o.dy) ? `${o.dx >= 0 ? "+" : ""}${o.dx},${o.dy >= 0 ? "+" : ""}${o.dy}` : " ";
+    fig.append(c, lbl, ol);
+    fig.addEventListener("click", () => selectFrame(i));
+    box.append(fig);
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   2. audio: decode + per-frame RMS  (cached — never recomputed
+      when threshold / hold / scale change)
+   ══════════════════════════════════════════════════════════ */
+
+let audioCtx = null;
+function ctx() { return audioCtx || (audioCtx = new (window.AudioContext || window.webkitAudioContext)()); }
+
+async function loadAudioBuffer(arrayBuf, url) {
+  let buf;
+  try {
+    buf = await ctx().decodeAudioData(arrayBuf.slice(0));
+  } catch (e) {
+    return err("input", "Couldn't decode that audio file. Try a plain WAV or MP3.");
+  }
+  S.audioBuffer = buf;
+  if (S.audioURL) URL.revokeObjectURL(S.audioURL);
+  S.audioURL = url;
+  $("audioEl").src = url;
+  clearMsg("input");
+  analyze();
+  autoThreshold();   // only on new audio — don't stomp manual tuning later
+}
+
+function downmix(buf) {
+  const n = buf.length;
+  const mono = new Float32Array(n);
+  for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+    const data = buf.getChannelData(ch);
+    for (let i = 0; i < n; i++) mono[i] += data[i];
+  }
+  if (buf.numberOfChannels > 1) {
+    for (let i = 0; i < n; i++) mono[i] /= buf.numberOfChannels;
+  }
+  return mono;
+}
+
+function analyze() {
+  if (!S.audioBuffer) return;
+  const buf = S.audioBuffer;
+  S.fps = parseInt($("fps").value, 10);
+  const n = buf.length;
+  const mono = downmix(buf);
+
+  // one window per output video frame
+  const win = Math.max(1, Math.round(buf.sampleRate / S.fps));
+  const frames = Math.max(1, Math.floor(n / win));
+  const db = new Float32Array(frames);
+
+  for (let f = 0; f < frames; f++) {
+    let sum = 0;
+    const start = f * win, end = start + win;
+    for (let i = start; i < end; i++) sum += mono[i] * mono[i];
+    const rms = Math.sqrt(sum / win);
+    db[f] = 20 * Math.log10(rms + 1e-9);
+  }
+
+  // normalize against the 95th percentile of non-silent windows, not the max —
+  // one loud pop shouldn't squash the rest of the take
+  const voiced = Array.from(db).filter(v => v > DB_FLOOR).sort((a, b) => a - b);
+  let ref = voiced.length ? voiced[Math.floor(voiced.length * 0.95)] : 0;
+  if (ref <= DB_FLOOR + 1) ref = DB_FLOOR + 1;
+
+  const out = new Float32Array(frames);
+  for (let f = 0; f < frames; f++) {
+    out[f] = clamp(((db[f] - DB_FLOOR) / (ref - DB_FLOOR)) * 100, 0, 100);
+  }
+  S.rms = out;
+
+  $("stDur").textContent = buf.duration.toFixed(2) + "s";
+  remap();
+  drawWave();
+  updateReady();
+}
+
+// The threshold is a hard gate on the recording's noise floor, and where that
+// floor sits is a property of the mic and the room — a fixed default is right
+// for one take and wrong for the next. So place it from the audio itself, just
+// above the quiet frames, and let the slider fine-tune from there.
+function autoThreshold() {
+  if (!S.rms || !S.rms.length) return;
+  const sorted = Array.from(S.rms).sort((a, b) => a - b);
+  const floor = sorted[Math.floor(sorted.length * 0.20)];   // typical quiet frame
+  const t = clamp(Math.round(floor + 6), 2, 60);
+  $("thr").value = t;
+  $("thrV").textContent = t;
+  remap();
+}
+
+/* ══════════════════════════════════════════════════════════
+   2b. recording — the mic straight into the pipeline, so a
+       take is a button press instead of a round trip through
+       another app
+   ══════════════════════════════════════════════════════════ */
+
+const MAX_TAKE = 10 * 60;    // seconds; a forgotten tab shouldn't eat all your RAM
+let rec = null;              // live recording session, null when idle
+
+function pickAudioMime() {
+  if (!window.MediaRecorder) return null;
+  const want = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+  for (const m of want) {
+    if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return "";                 // let the browser pick
+}
+
+function setMeter(pct, peak) {
+  const m = $("meter");
+  m.firstElementChild.style.width = clamp(pct, 0, 100) + "%";
+  m.classList.toggle("hot", peak > 0.7 && peak <= 0.98);
+  m.classList.toggle("clip", peak > 0.98);
+}
+
+async function startRecording() {
+  if (rec) return stopRecording();
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return err("input", location.protocol === "file:"
+      ? "This browser won't open the mic on a file:// page. Use the hosted copy at alejandruxxug.github.io/Catsync, or drag a file in."
+      : "This browser won't give the page a microphone. Drag in a WAV or MP3 instead.");
+  }
+  if (!window.MediaRecorder) {
+    return err("input", "This browser has no MediaRecorder, so it can't record. Drag in a WAV or MP3 instead.");
+  }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      // All three of these fight the thing we're measuring. Auto gain flattens
+      // loud against quiet, which is the entire lip-sync signal. Noise
+      // suppression gates room tone down to digital silence, which turns the
+      // threshold into a cliff with nothing sensible to sit on. Echo
+      // cancellation is for calls. Off, off, off — a raw take reads better.
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+  } catch (e) {
+    const n = e && e.name;
+    return err("input",
+      n === "NotAllowedError" ? "Mic permission was denied. Allow it (the icon in the address bar) and hit Record again." :
+      n === "NotFoundError" || n === "DevicesNotFoundError" ? "No microphone found." :
+      n === "NotReadableError" ? "The mic is busy — another app or tab has it." :
+      "Couldn't open the mic" + (n ? ` (${n}).` : "."));
+  }
+
+  const a = $("audioEl");
+  if (!a.paused) { a.pause(); $("playBtn").textContent = "Play"; stopLoop(); }
+
+  const c = ctx();
+  if (c.state === "suspended") { try { await c.resume(); } catch (e) {} }
+
+  // Meter only. The mic is deliberately never connected to the destination —
+  // that's a speaker-to-mic feedback loop, and it's loud.
+  const src = c.createMediaStreamSource(stream);
+  const an = c.createAnalyser();
+  an.fftSize = 1024;
+  src.connect(an);
+
+  const mime = pickAudioMime();
+  let mr;
+  try {
+    mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  } catch (e) {
+    stream.getTracks().forEach(t => t.stop());
+    return err("input", "This browser refused to start an audio recorder. Drag in a WAV or MP3 instead.");
+  }
+
+  const chunks = [];
+  mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  mr.onstop = () => finishRecording(chunks, mr.mimeType || mime);
+  mr.start();
+
+  rec = { mr, stream, src, an, t0: performance.now(), raf: 0 };
+  $("recBtn").classList.add("rec");
+  $("recBtn").innerHTML = "&#9632; Stop";
+  $("saveTake").hidden = true;
+  msg("input", "work", "Recording. Speak at the level you'll actually use, then hit Stop.");
+
+  const frame = new Float32Array(an.fftSize);
+  const tickMeter = () => {
+    if (!rec) return;
+    an.getFloatTimeDomainData(frame);
+    let sum = 0, peak = 0;
+    for (let i = 0; i < frame.length; i++) {
+      const v = frame[i];
+      sum += v * v;
+      if (Math.abs(v) > peak) peak = Math.abs(v);
+    }
+    const db = 20 * Math.log10(Math.sqrt(sum / frame.length) + 1e-9);
+    setMeter(((db + 60) / 60) * 100, peak);          // -60dB..0dB across the bar
+
+    const t = (performance.now() - rec.t0) / 1000;
+    $("recTime").textContent = t.toFixed(1) + "s";
+    if (t >= MAX_TAKE) { stopRecording(); return; }
+    rec.raf = requestAnimationFrame(tickMeter);
+  };
+  tickMeter();
+}
+
+function stopRecording() {
+  if (!rec) return;
+  const r = rec;
+  rec = null;                                  // stops the meter loop
+  cancelAnimationFrame(r.raf);
+  try { r.mr.stop(); } catch (e) {}            // fires onstop -> finishRecording
+  try { r.src.disconnect(); } catch (e) {}
+  // Release the device, or the browser keeps showing the recording indicator
+  // and the mic stays hot after you've stopped.
+  r.stream.getTracks().forEach(t => t.stop());
+  $("recBtn").classList.remove("rec");
+  $("recBtn").innerHTML = "&#9679; Record";
+  setMeter(0, 0);
+}
+
+async function finishRecording(chunks, mime) {
+  if (!chunks.length) return err("input", "The recording came back empty. Check the mic is the one you think it is.");
+  msg("input", "work", "Encoding the take…");
+  const raw = new Blob(chunks, { type: mime || "audio/webm" });
+
+  let buf;
+  try {
+    buf = await ctx().decodeAudioData(await raw.arrayBuffer());
+  } catch (e) {
+    return err("input", "The recording wouldn't decode. Try again, or record in another app and drag the file in.");
+  }
+
+  // MediaRecorder writes a live-stream container with no length in the header —
+  // the same hole that made the WebM video export come out short. An <audio>
+  // element reports Infinity for its duration and won't seek, which breaks the
+  // waveform and the scrubber. We already have the decoded samples, so the take
+  // is re-encoded as a plain WAV, which carries a real length. Mono, because
+  // that's what the analysis reduces to anyway.
+  const wav = encodeWAV(downmix(buf), buf.sampleRate);
+  S.takeBlob = wav;
+
+  const secs = buf.duration;
+  $("dropAudio").classList.add("loaded");
+  $("dropAudio").innerHTML = `<strong>Audio</strong><br>recorded take · ${secs.toFixed(1)}s`;
+  $("recTime").textContent = secs.toFixed(1) + "s";
+  $("saveTake").hidden = false;
+
+  await loadAudioBuffer(await wav.arrayBuffer(), URL.createObjectURL(wav));
+  updateReady();
+  if (S.audioBuffer) {
+    msg("input", "ok", `Got ${secs.toFixed(1)}s. Threshold set from this take's noise floor — check the mouth-closed number.`);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   3. mapping: loudness → sprite index (cheap; runs on every
+      slider drag)
+   ══════════════════════════════════════════════════════════ */
+
+function bandOf(v, thr, N) {
+  if (v <= thr) return 0;
+  const t = (v - thr) / (100 - thr);
+  return clamp(1 + Math.floor(t * (N - 1)), 1, N - 1);
+}
+
+function remap() {
+  if (!S.rms || !S.keyed.length) return;
+  const thr = parseInt($("thr").value, 10);
+  const hold = parseInt($("hold").value, 10);
+  const N = S.keyed.length;
+  const len = S.rms.length;
+  const map = new Int16Array(len);
+
+  let cur = 0, heldFor = 0;
+  for (let f = 0; f < len; f++) {
+    const v = S.rms[f];
+    let want = bandOf(v, thr, N);
+
+    // hysteresis: must clear the boundary by a margin before switching,
+    // otherwise a value sitting on the edge chatters between two mouths
+    if (want > cur && bandOf(v - HYST, thr, N) <= cur) want = cur;
+    else if (want < cur && bandOf(v + HYST, thr, N) >= cur) want = cur;
+
+    // minimum hold — the single most important step. without it, strobing.
+    if (want !== cur && heldFor < hold) { want = cur; }
+
+    if (want === cur) heldFor++;
+    else { cur = want; heldFor = 1; }
+    map[f] = cur;
+  }
+
+  S.mapping = map;
+  let closed = 0;
+  for (let f = 0; f < len; f++) if (map[f] === 0) closed++;
+  $("stFrames").textContent = len;
+  $("stClosed").textContent = Math.round((closed / len) * 100) + "%";
+  drawWave();
+  drawFrameAt(currentFrame());
+}
+
+/* ══════════════════════════════════════════════════════════
+   4. preview + waveform
+   ══════════════════════════════════════════════════════════ */
+
+/* What gets exported — always the viewport. */
+function spriteSize() {
+  if (!S.keyed.length || !S.crop) return [0, 0];
+  const s = parseInt($("scale").value, 10);
+  return [S.crop.w * s, S.crop.h * s];
+}
+
+const cutLocked = () => $("lockView").checked;
+
+/* What the preview shows. Until the cut is locked it's the whole frame, so
+   moving a sprite that currently falls outside the viewport is still visible
+   instead of being silently clipped away mid-edit. */
+function previewSize() {
+  if (!S.keyed.length || !S.crop) return [0, 0];
+  if (cutLocked()) return spriteSize();
+  const s = parseInt($("scale").value, 10);
+  return [S.cellW * s, S.cellH * s];
+}
+
+/* ── viewport / crop ─────────────────────────────────────
+   The exported frame is this window onto the cell, not the whole
+   cell — so you can trim dead space or frame head-and-shoulders,
+   and every export follows it. */
+
+function syncCropInputs() {
+  if (!S.crop) return;
+  $("cropX").value = S.crop.x; $("cropY").value = S.crop.y;
+  $("cropW").value = S.crop.w; $("cropH").value = S.crop.h;
+  $("cropLbl").textContent = `${S.crop.w}×${S.crop.h} px`;
+}
+
+function readCropInputs() {
+  if (!S.crop) return;
+  const cw = S.cellW, ch = S.cellH;
+  const x = clamp(parseInt($("cropX").value, 10) || 0, -cw, cw);
+  const y = clamp(parseInt($("cropY").value, 10) || 0, -ch, ch);
+  const w = clamp(parseInt($("cropW").value, 10) || 1, 1, cw * 3);
+  const h = clamp(parseInt($("cropH").value, 10) || 1, 1, ch * 3);
+  S.crop = { x, y, w, h };
+  syncCropInputs();
+  resizePreview();
+  renderAlign();
+  drawFrameAt(currentFrame());
+}
+
+/* Union bounding box of every frame's opaque pixels, offsets applied.
+   Trims the dead space the sheet came with without clipping any pose. */
+function fitCropToContent(pad) {
+  if (!S.keyed.length) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < S.keyed.length; i++) {
+    const d = pixelsOf(i), o = off(i);
+    const w = d.width, h = d.height, a = d.data;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (a[(y * w + x) * 4 + 3] > 8) {
+          const px = x + o.dx, py = y + o.dy;
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+        }
+      }
+    }
+  }
+  if (minX === Infinity) return msg("input", "err", "Every frame is fully transparent — check your key color and tolerance.");
+  S.crop = {
+    x: Math.floor(minX - pad), y: Math.floor(minY - pad),
+    w: Math.ceil(maxX - minX + 1 + pad * 2), h: Math.ceil(maxY - minY + 1 + pad * 2),
+  };
+  syncCropInputs();
+  resizePreview();
+  renderAlign();
+  drawFrameAt(currentFrame());
+  msg("input", "ok", `Viewport fitted to ${S.crop.w}×${S.crop.h}px.`);
+}
+
+function resizePreview() {
+  const [w, h] = spriteSize();
+  if (!w) return;
+  const [pw, ph] = previewSize();
+  const cv = $("preview");
+  cv.width = pw; cv.height = ph;
+  cv.hidden = false;
+  $("emptyNote").style.display = "none";
+  cv.classList.toggle("checker", $("checker").checked);
+  cv.classList.toggle("fit", $("fitView").checked);
+  // always report the exported size, never the preview's
+  $("stOut").textContent = `${w}×${h}`;
+}
+
+function drawFrameAt(f) {
+  if (!S.keyed.length || !S.crop) return;
+  const cv = $("preview");
+  const x = cv.getContext("2d");
+  x.imageSmoothingEnabled = false;              // nearest neighbour only
+  x.clearRect(0, 0, cv.width, cv.height);
+  const idx = S.mapping ? S.mapping[clamp(f, 0, S.mapping.length - 1)] : 0;
+  const i = clamp(idx, 0, S.keyed.length - 1);
+  const spr = S.keyed[i];
+  const s = parseInt($("scale").value, 10), o = off(i), c = S.crop;
+  const locked = cutLocked();
+  const cx = locked ? c.x : 0, cy = locked ? c.y : 0;
+  x.drawImage(spr, (o.dx - cx) * s, (o.dy - cy) * s, spr.width * s, spr.height * s);
+
+  // unlocked: the viewport is only a guide, so show where the cut will fall
+  if (!locked && (c.x !== 0 || c.y !== 0 || c.w !== S.cellW || c.h !== S.cellH)) {
+    const rx = c.x * s, ry = c.y * s, rw = c.w * s, rh = c.h * s;
+    x.save();
+    x.beginPath();
+    x.rect(0, 0, cv.width, cv.height);
+    x.rect(rx, ry, rw, rh);
+    x.fillStyle = "#0b0d1099";
+    x.fill("evenodd");
+    x.restore();
+    x.strokeStyle = "#4fd1c5";
+    x.lineWidth = Math.max(1, Math.round(s / 2));
+    x.strokeRect(rx + .5, ry + .5, rw - 1, rh - 1);
+  }
+
+  $("frameLbl").textContent = S.mapping ? `frame ${f} · sprite ${idx}` : "";
+}
+
+function currentFrame() {
+  const a = $("audioEl");
+  return Math.floor((a.currentTime || 0) * S.fps);
+}
+
+function drawWave() {
+  const cv = $("wave");
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 600, h = 84;
+  cv.width = w * dpr; cv.height = h * dpr;
+  cv.style.height = h + "px";
+  const x = cv.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, w, h);
+
+  if (!S.rms) return;
+  const len = S.rms.length;
+  const thr = parseInt($("thr").value, 10);
+
+  // threshold line
+  const thrY = h - (thr / 100) * h;
+  x.strokeStyle = "#f0b42977"; x.lineWidth = 1;
+  x.beginPath(); x.moveTo(0, thrY); x.lineTo(w, thrY); x.stroke();
+
+  for (let px = 0; px < w; px++) {
+    const f = Math.floor((px / w) * len);
+    const v = S.rms[f];
+    const bh = (v / 100) * h;
+    const open = S.mapping && S.mapping[f] > 0;
+    x.fillStyle = open ? "#ff4fa3" : "#3a4049";
+    x.fillRect(px, h - bh, 1, bh);
+  }
+
+  // playhead
+  const a = $("audioEl");
+  if (S.audioBuffer && a.duration) {
+    const px = (a.currentTime / S.audioBuffer.duration) * w;
+    x.fillStyle = "#4fd1c5";
+    x.fillRect(px, 0, 1.5, h);
+  }
+}
+
+/* playback loop */
+let raf = null;
+function tick() {
+  const a = $("audioEl");
+  drawFrameAt(currentFrame());
+  drawWave();
+  $("timeLbl").textContent =
+    `${(a.currentTime || 0).toFixed(2)} / ${(S.audioBuffer ? S.audioBuffer.duration : 0).toFixed(2)} s`;
+  raf = requestAnimationFrame(tick);
+}
+function startLoop() { if (!raf) tick(); }
+function stopLoop() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+
+/* ══════════════════════════════════════════════════════════
+   4b. alignment — onion skin
+   Image models can't hold a sprite pixel-identical across cells,
+   so cells come back shifted. Nudge them here instead of
+   round-tripping through a pixel editor.
+   ══════════════════════════════════════════════════════════ */
+
+let alignZoom = 4;
+
+function refIndexFor(i) {
+  if (i <= 0) return -1;
+  return $("refMode").value === "prev" ? i - 1 : 0;
+}
+
+function selectFrame(i) {
+  S.sel = clamp(i, 0, S.keyed.length - 1);
+  drawThumbs();
+  renderAlign();
+  drawSliceView();   // highlight which cell on the sheet you're looking at
+}
+
+function renderAlign() {
+  const cv = $("alignCv");
+  if (!S.keyed.length) { cv.hidden = true; $("alignEmpty").style.display = ""; return; }
+
+  const cur = S.keyed[S.sel];
+  const sw = cur.width, sh = cur.height;
+  alignZoom = Math.max(1, Math.floor(Math.min(360 / sw, 230 / sh))) || 1;
+
+  cv.hidden = false;
+  $("alignEmpty").style.display = "none";
+  cv.width = sw * alignZoom;
+  cv.height = sh * alignZoom;
+
+  const x = cv.getContext("2d");
+  x.imageSmoothingEnabled = false;
+  x.fillStyle = "#15181d";
+  x.fillRect(0, 0, cv.width, cv.height);
+
+  const ri = refIndexFor(S.sel);
+  const o = off(S.sel);
+  const mode = $("onionMode").value;
+  const opa = parseInt($("onionOp").value, 10) / 100;
+
+  if (ri >= 0) {
+    const ro = off(ri);
+    x.globalAlpha = mode === "diff" ? 1 : opa;
+    x.drawImage(S.keyed[ri], ro.dx * alignZoom, ro.dy * alignZoom, cv.width, cv.height);
+    x.globalAlpha = 1;
+  }
+
+  if (mode === "diff" && ri >= 0) x.globalCompositeOperation = "difference";
+  x.drawImage(cur, o.dx * alignZoom, o.dy * alignZoom, cv.width, cv.height);
+  x.globalCompositeOperation = "source-over";
+
+  // centre guides — easier to spot a body that drifted sideways
+  x.strokeStyle = "#ffffff14"; x.lineWidth = 1;
+  x.beginPath();
+  x.moveTo(cv.width / 2, 0); x.lineTo(cv.width / 2, cv.height);
+  x.moveTo(0, cv.height / 2); x.lineTo(cv.width, cv.height / 2);
+  x.stroke();
+
+  // the exported viewport: dim what falls outside it
+  const c = S.crop;
+  if (c && (c.x !== 0 || c.y !== 0 || c.w !== sw || c.h !== sh)) {
+    const rx = c.x * alignZoom, ry = c.y * alignZoom,
+          rw = c.w * alignZoom, rh = c.h * alignZoom;
+    x.save();
+    x.beginPath();
+    x.rect(0, 0, cv.width, cv.height);
+    x.rect(rx, ry, rw, rh);
+    x.fillStyle = "#0b0d10aa";
+    x.fill("evenodd");
+    x.restore();
+    x.strokeStyle = "#4fd1c5"; x.lineWidth = 1;
+    x.strokeRect(rx + .5, ry + .5, rw - 1, rh - 1);
+  }
+
+  $("selLbl").textContent = ri < 0 ? `${S.sel} · reference` : `${S.sel} vs ${ri}`;
+  $("offLbl").innerHTML = `dx ${o.dx} &nbsp; dy ${o.dy}` +
+    ($("moveAll").checked ? ` <span style="color:var(--dim)">· all</span>` : "");
+  // Only auto-align needs a reference frame. Moving is always allowed.
+  $("autoOne").disabled = ri < 0;
+}
+
+/* Keep a frame reachable — dragged far enough it leaves the cell entirely and
+   there's nothing left on screen to grab. */
+function clampOffset(o) {
+  const w = S.cellW || 64, h = S.cellH || 64;
+  o.dx = clamp(o.dx, -w, w);
+  o.dy = clamp(o.dy, -h, h);
+  return o;
+}
+
+/* Every frame can be moved, frame 0 included. It's still the alignment
+   reference, but locking it meant a sprite clipped by the viewport edge could
+   never be pulled back into frame. */
+function nudge(dx, dy) {
+  const all = $("moveAll").checked;
+  S.offsets.forEach((o, i) => {
+    if (!all && i !== S.sel) return;
+    o.dx += dx; o.dy += dy;
+    clampOffset(o);
+  });
+  afterOffsetChange();
+}
+
+function afterOffsetChange() {
+  drawThumbs();
+  renderAlign();
+  drawFrameAt(currentFrame());
+}
+
+/* cached pixels for auto-align, dropped whenever keying changes */
+let idCache = new Map();
+function pixelsOf(i) {
+  if (idCache.has(i)) return idCache.get(i);
+  const cv = S.keyed[i];
+  const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height);
+  idCache.set(i, d);
+  return d;
+}
+
+/* The search cost is (2R+1)² × pixels, which explodes on a high-resolution
+   sheet — a 1024px sprite would freeze the tab. So run the search on a
+   downscaled copy and scale the answer back up. Precision ends up relative
+   to sprite size rather than absolute, which is what actually matters:
+   1px out of 48 and 4px out of 1024 look identical on screen. Small sprites
+   are untouched (factor 1) and stay pixel-exact. */
+const WORK_MAX = 192;
+let workCache = new Map();
+function workOf(i) {
+  if (workCache.has(i)) return workCache.get(i);
+  const src = S.keyed[i];
+  const f = Math.max(1, Math.ceil(Math.max(src.width, src.height) / WORK_MAX));
+  let data;
+  if (f === 1) {
+    data = pixelsOf(i);
+  } else {
+    const w = Math.max(1, Math.round(src.width / f)), h = Math.max(1, Math.round(src.height / f));
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    const x = cv.getContext("2d");
+    x.imageSmoothingEnabled = true;      // averaging is what we want for correlation
+    x.drawImage(src, 0, 0, w, h);
+    data = x.getImageData(0, 0, w, h);
+  }
+  const out = { data, f };
+  workCache.set(i, out);
+  return out;
+}
+
+/* how far to look, as a fraction of sprite size */
+function searchRadius(i) {
+  const s = S.keyed[i];
+  return clamp(Math.round(Math.max(s.width, s.height) * 0.06), 12, 48);
+}
+
+/* Search a small window for the shift that best matches the reference.
+   Alpha is weighted heavily — the silhouette is what has to line up, and
+   the mouth is the one part that's legitimately allowed to differ. */
+function bestShift(curI, refI, R) {
+  const A = workOf(curI), B = workOf(refI);
+  const f = A.f;
+  const Ad = A.data, Bd = B.data;
+  const w = Ad.width, h = Ad.height, a = Ad.data, b = Bd.data;
+  const Rr = Math.max(2, Math.round(R / f));      // radius in working pixels
+  let best = { rx: 0, ry: 0, score: Infinity };
+
+  for (let ry = -Rr; ry <= Rr; ry++) {
+    for (let rx = -Rr; rx <= Rr; rx++) {
+      let score = 0;
+      // every pixel: sub-sampling aliases away odd-numbered shifts and
+      // silently returns an off-by-one. ~30ms per frame, so it doesn't matter.
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const ai = (y * w + x) * 4;
+          const bx = x + rx, by = y + ry;
+          let br = 0, bg = 0, bb = 0, ba = 0;
+          if (bx >= 0 && bx < w && by >= 0 && by < h) {
+            const bi = (by * w + bx) * 4;
+            br = b[bi]; bg = b[bi+1]; bb = b[bi+2]; ba = b[bi+3];
+          }
+          const da = a[ai+3] - ba;
+          score += da * da * 3;
+          if (a[ai+3] > 8 && ba > 8) {
+            const dr = a[ai] - br, dg = a[ai+1] - bg, db = a[ai+2] - bb;
+            score += dr*dr + dg*dg + db*db;
+          }
+        }
+      }
+      // tie-break toward no movement, so a flat match doesn't drift
+      score += (Math.abs(rx) + Math.abs(ry)) * 0.5;
+      if (score < best.score) best = { rx, ry, score };
+    }
+  }
+  return { rx: best.rx * f, ry: best.ry * f };   // back to full-resolution pixels
+}
+
+function autoAlignOne(i, quiet) {
+  const ri = refIndexFor(i);
+  if (ri < 0) return;
+  const { rx, ry } = bestShift(i, ri, searchRadius(i));
+  const ro = off(ri);
+  S.offsets[i] = { dx: ro.dx + rx, dy: ro.dy + ry };   // relative to the aligned reference
+  if (!quiet) { afterOffsetChange(); msg("input", "ok", `Frame ${i} shifted ${rx >= 0 ? "+" : ""}${rx}, ${ry >= 0 ? "+" : ""}${ry}.`); }
+}
+
+function autoAlignAll() {
+  if (S.keyed.length < 2) return;
+  for (let i = 1; i < S.keyed.length; i++) autoAlignOne(i, true);   // chains when ref = previous
+  afterOffsetChange();
+  const moved = S.offsets.filter(o => o.dx || o.dy).length;
+  msg("input", "ok", moved ? `Aligned ${moved} frame${moved > 1 ? "s" : ""}. Scrub through to check.` : "Everything already lined up.");
+}
+
+/* ══════════════════════════════════════════════════════════
+   5. ZIP writer — STORE (no compression). PNGs are already
+      compressed, so a stored archive is valid and tiny to write.
+   ══════════════════════════════════════════════════════════ */
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+function dosTime(d) {
+  return ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() / 2)) & 0xFFFF;
+}
+function dosDate(d) {
+  return (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+}
+
+function buildZip(files) {   // files: [{name, bytes, crc}]
+  const enc = new TextEncoder();
+  const now = new Date();
+  const time = dosTime(now), date = dosDate(now);
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const size = f.bytes.length;
+    const crc = f.crc;
+
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true);
+    lh.setUint16(4, 20, true);      // version needed
+    lh.setUint16(6, 0, true);       // flags
+    lh.setUint16(8, 0, true);       // method 0 = store
+    lh.setUint16(10, time, true);
+    lh.setUint16(12, date, true);
+    lh.setUint32(14, crc, true);
+    lh.setUint32(18, size, true);   // compressed size == uncompressed
+    lh.setUint32(22, size, true);
+    lh.setUint16(26, name.length, true);
+    lh.setUint16(28, 0, true);
+    chunks.push(new Uint8Array(lh.buffer), name, f.bytes);
+
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true);
+    ch.setUint16(4, 20, true);      // version made by
+    ch.setUint16(6, 20, true);      // version needed
+    ch.setUint16(8, 0, true);
+    ch.setUint16(10, 0, true);
+    ch.setUint16(12, time, true);
+    ch.setUint16(14, date, true);
+    ch.setUint32(16, crc, true);
+    ch.setUint32(20, size, true);
+    ch.setUint32(24, size, true);
+    ch.setUint16(28, name.length, true);
+    ch.setUint16(30, 0, true);      // extra
+    ch.setUint16(32, 0, true);      // comment
+    ch.setUint16(34, 0, true);      // disk
+    ch.setUint16(36, 0, true);      // internal attrs
+    ch.setUint32(38, 0, true);      // external attrs
+    ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+
+    offset += 30 + name.length + size;
+  }
+
+  let cdSize = 0;
+  for (const c of central) cdSize += c.length;
+
+  const eo = new DataView(new ArrayBuffer(22));
+  eo.setUint32(0, 0x06054b50, true);
+  eo.setUint16(4, 0, true);
+  eo.setUint16(6, 0, true);
+  eo.setUint16(8, files.length, true);
+  eo.setUint16(10, files.length, true);
+  eo.setUint32(12, cdSize, true);
+  eo.setUint32(16, offset, true);
+  eo.setUint16(20, 0, true);
+
+  return new Blob([...chunks, ...central, new Uint8Array(eo.buffer)], { type: "application/zip" });
+}
+
+/* ══════════════════════════════════════════════════════════
+   5b. WebM duration repair
+
+   MediaRecorder writes a *live-stream* WebM: the Segment has unknown
+   size and the Info block carries no Duration element, because when
+   recording starts the length genuinely isn't known yet. Nothing
+   backfills it on stop. Players and editors then have to guess the
+   length from cluster timecodes, and many guess low — which is why the
+   clip looks shorter than the audio.
+
+   We know the exact intended length (frames ÷ fps), so write it in.
+   Any surprise while parsing returns the original blob untouched: a
+   slightly-wrong duration beats a corrupted file.
+   ══════════════════════════════════════════════════════════ */
+
+const EBML_ID = {
+  SEGMENT: 0x18538067, INFO: 0x1549A966, DURATION: 0x4489, TIMECODESCALE: 0x2AD7B1,
+  SEEKHEAD: 0x114D9B74, CUES: 0x1C53BB6B,
+};
+
+function readVint(b, pos) {
+  const first = b[pos];
+  if (first === undefined || first === 0) return null;
+  let len = 1;
+  for (let m = 0x80; m && !(first & m); m >>= 1) len++;
+  if (len > 8 || pos + len > b.length) return null;
+  let value = first & (0xFF >> len);
+  let unknown = value === (0xFF >> len);
+  for (let i = 1; i < len; i++) {
+    value = value * 256 + b[pos + i];
+    if (b[pos + i] !== 0xFF) unknown = false;
+  }
+  return { value, len, unknown };
+}
+
+function readId(b, pos) {
+  const first = b[pos];
+  if (first === undefined || first === 0) return null;
+  let len = 1;
+  for (let m = 0x80; m && !(first & m); m >>= 1) len++;
+  if (len > 4 || pos + len > b.length) return null;
+  let id = 0;
+  for (let i = 0; i < len; i++) id = id * 256 + b[pos + i];
+  return { id, len };
+}
+
+function writeVint(value) {
+  let len = 1;
+  while (len < 8 && value >= Math.pow(2, 7 * len) - 1) len++;
+  const out = new Uint8Array(len);
+  let v = value;
+  for (let i = len - 1; i >= 0; i--) { out[i] = v & 0xFF; v = Math.floor(v / 256); }
+  out[0] |= 0x80 >> (len - 1);
+  return out;
+}
+
+/* walk one level of children, returns [{id, start, headerLen, size, unknown}] */
+function ebmlChildren(b, start, end) {
+  const out = [];
+  let pos = start;
+  while (pos < end) {
+    const id = readId(b, pos);
+    if (!id) return out;
+    const sz = readVint(b, pos + id.len);
+    if (!sz) return out;
+    const headerLen = id.len + sz.len;
+    out.push({ id: id.id, start: pos, headerLen, size: sz.value, unknown: sz.unknown });
+    if (sz.unknown) return out;                       // can't skip past it
+    pos += headerLen + sz.value;
+  }
+  return out;
+}
+
+/* How much video the encoder has actually committed, in ms.
+
+   A realtime MediaRecorder can fall behind on a large canvas: frames queue up
+   inside the encoder and stop() throws away whatever hasn't been written yet,
+   silently truncating the end. Wall-clock time says nothing about this, so
+   read it out of the stream — every Cluster carries an absolute Timecode, so
+   the highest one seen is how far the encoding has genuinely got. */
+function scanClusterTimecodes(bytes, soFar) {
+  let best = soFar;
+  for (let i = 0; i + 8 < bytes.length; i++) {
+    if (bytes[i] !== 0x1F || bytes[i+1] !== 0x43 || bytes[i+2] !== 0xB6 || bytes[i+3] !== 0x75) continue;
+    const sz = readVint(bytes, i + 4);
+    if (!sz) continue;
+    let p = i + 4 + sz.len;
+    if (bytes[p] !== 0xE7) continue;                 // Timecode must lead a Cluster
+    const tsz = readVint(bytes, p + 1);
+    if (!tsz || tsz.value > 8 || tsz.value < 1) continue;
+    let v = 0;
+    for (let k = 0; k < tsz.value; k++) v = v * 256 + bytes[p + 1 + tsz.len + k];
+    if (v > best) best = v;                          // TimecodeScale 1e6 => ms
+  }
+  return best;
+}
+
+function patchWebmDuration(bytes, seconds) {
+  try {
+    const top = ebmlChildren(bytes, 0, bytes.length);
+    const seg = top.find(e => e.id === EBML_ID.SEGMENT);
+    if (!seg) return null;
+
+    const segStart = seg.start + seg.headerLen;
+    const segEnd = seg.unknown ? bytes.length : segStart + seg.size;
+    const info = ebmlChildren(bytes, segStart, segEnd).find(e => e.id === EBML_ID.INFO);
+    if (!info || info.unknown) return null;
+
+    const infoStart = info.start + info.headerLen;
+    const infoEnd = infoStart + info.size;
+    const kids = ebmlChildren(bytes, infoStart, infoEnd);
+
+    // Duration is expressed in TimecodeScale units (default 1ms)
+    let scale = 1000000;
+    const ts = kids.find(e => e.id === EBML_ID.TIMECODESCALE);
+    if (ts) {
+      let v = 0;
+      for (let i = 0; i < ts.size; i++) v = v * 256 + bytes[ts.start + ts.headerLen + i];
+      if (v > 0) scale = v;
+    }
+    const durValue = (seconds * 1e9) / scale;
+
+    const existing = kids.find(e => e.id === EBML_ID.DURATION);
+    if (existing) {
+      // overwrite in place — same length, nothing else moves
+      const out = bytes.slice();
+      const at = existing.start + existing.headerLen;
+      const dv = new DataView(out.buffer, out.byteOffset);
+      if (existing.size === 4) dv.setFloat32(at, durValue, false);
+      else if (existing.size === 8) dv.setFloat64(at, durValue, false);
+      else return null;
+      return out;
+    }
+
+    // Inserting bytes shifts everything after Info, which would invalidate the
+    // absolute byte offsets inside a SeekHead or Cues. MediaRecorder's live
+    // profile writes neither, but if one is there, leave the file alone.
+    const segKids = ebmlChildren(bytes, segStart, segEnd);
+    if (segKids.some(e => e.id === EBML_ID.SEEKHEAD || e.id === EBML_ID.CUES)) return null;
+
+    // no Duration element: append one to Info and resize Info
+    const dur = new Uint8Array(11);
+    dur[0] = 0x44; dur[1] = 0x89;                     // Duration id
+    dur[2] = 0x88;                                    // 8-byte payload
+    new DataView(dur.buffer).setFloat64(3, durValue, false);
+
+    const newInfoSize = info.size + dur.length;
+    const newSizeVint = writeVint(newInfoSize);
+
+    // rebuild: everything before Info | Info id | new size | old content + Duration | rest
+    const idLen = readId(bytes, info.start).len;
+    const head = bytes.subarray(0, info.start);
+    const idPart = bytes.subarray(info.start, info.start + idLen);
+    const body = bytes.subarray(infoStart, infoEnd);
+    const tail = bytes.subarray(infoEnd);
+
+    const out = new Uint8Array(head.length + idPart.length + newSizeVint.length + body.length + dur.length + tail.length);
+    let p = 0;
+    out.set(head, p); p += head.length;
+    out.set(idPart, p); p += idPart.length;
+    out.set(newSizeVint, p); p += newSizeVint.length;
+    out.set(body, p); p += body.length;
+    out.set(dur, p); p += dur.length;
+    out.set(tail, p);
+
+    // if Segment had a known size it just grew, and fixing that is more
+    // surgery than this is worth — bail rather than emit something wrong
+    if (!seg.unknown) return null;
+    return out;
+  } catch (e) {
+    return null;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   6. exports
+   ══════════════════════════════════════════════════════════ */
+
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+async function exportPNG() {
+  if (!S.mapping) return;
+  const btn = $("expPng");
+  btn.disabled = true;
+  msg("exp", "work", "Rendering sprites…");
+
+  const [w, h] = spriteSize();
+  // Only N distinct images exist, so render each once and reuse the bytes for
+  // every frame that points at it. Turns thousands of encodes into a handful.
+  const unique = [];
+  const sc = parseInt($("scale").value, 10);
+  for (let i = 0; i < S.keyed.length; i++) {
+    const spr = S.keyed[i], o = off(i);
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    const x = cv.getContext("2d");
+    x.imageSmoothingEnabled = false;
+    x.drawImage(spr, (o.dx - S.crop.x) * sc, (o.dy - S.crop.y) * sc, spr.width * sc, spr.height * sc);
+    const blob = await new Promise(res => cv.toBlob(res, "image/png"));
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    unique.push({ bytes, crc: crc32(bytes) });
+  }
+
+  const total = S.mapping.length;
+  const files = [];
+  const pad = String(total).length < 4 ? 4 : String(total).length;
+  for (let f = 0; f < total; f++) {
+    const u = unique[S.mapping[f]];
+    files.push({ name: `frame_${String(f + 1).padStart(pad, "0")}.png`, bytes: u.bytes, crc: u.crc });
+    if (f % 500 === 0) {
+      msg("exp", "work", `Packing frame ${f + 1} of ${total}…`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  msg("exp", "work", "Building archive…");
+  await new Promise(r => setTimeout(r, 0));
+  const zip = buildZip(files);
+  download(zip, `catsync_${total}f_${S.fps}fps.zip`);
+  msg("exp", "ok", `Exported ${total} frames at ${S.fps} fps. Import as an image sequence.`);
+  btn.disabled = false;
+}
+
+let recorder = null;
+
+/* createMediaElementSource can only ever be called once per element, so cache
+   the tap. Rebuilding it per export threw, got swallowed, and every export
+   after the first came out silent. */
+let audioTap = null;
+function audioTapFor(a) {
+  if (audioTap) return audioTap;
+  try {
+    const src = ctx().createMediaElementSource(a);
+    const dest = ctx().createMediaStreamDestination();
+    src.connect(dest);
+    src.connect(ctx().destination);   // keep it audible while recording
+    audioTap = { src, dest };
+  } catch (e) {
+    audioTap = null;
+  }
+  return audioTap;
+}
+
+async function exportWebM() {
+  if (!S.mapping) return;
+  const btn = $("expWebm");
+  const a = $("audioEl");
+  btn.disabled = true;
+
+  const [w, h] = spriteSize();
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const x = cv.getContext("2d");
+  x.imageSmoothingEnabled = false;
+
+  // captureStream(0) hands us frame-by-frame control via requestFrame().
+  // Left on auto-capture, frames are only sampled when the canvas happens to
+  // be dirty and rAF throttles to ~1fps in a background tab, so the cadence
+  // silently collapses. Fall back to auto if requestFrame isn't available.
+  const stream = cv.captureStream(0);
+  const vtrack = stream.getVideoTracks()[0];
+  const manual = typeof vtrack.requestFrame === "function";
+  const autoStream = manual ? null : cv.captureStream(S.fps);
+  const useStream = manual ? stream : autoStream;
+
+  // one persistent tap — createMediaElementSource throws on a second call for
+  // the same element, which used to silently drop audio from every re-export
+  const tap = audioTapFor(a);
+  if (tap) tap.dest.stream.getAudioTracks().forEach(t => useStream.addTrack(t));
+
+  // VP8 first: it encodes far faster in realtime than VP9, and falling behind
+  // realtime is what truncates the end of the clip. Quality barely matters
+  // here — this is the preview export, the PNG sequence is the master.
+  const mime = ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus", "video/webm"]
+    .find(m => MediaRecorder.isTypeSupported(m));
+  if (!mime) { msg("exp", "err", "This browser can't record WebM. Use the PNG sequence."); btn.disabled = false; return; }
+
+  const total = S.mapping.length;
+  const seconds = total / S.fps;
+  const frameMs = 1000 / S.fps;
+  const keyHex = $("key").value;
+  const sc = parseInt($("scale").value, 10);
+
+  const drawIdx = idx => {
+    x.fillStyle = keyHex;                        // baked-in background, no alpha
+    x.fillRect(0, 0, w, h);
+    const o = off(idx), spr = S.keyed[idx];
+    x.drawImage(spr, (o.dx - S.crop.x) * sc, (o.dy - S.crop.y) * sc, spr.width * sc, spr.height * sc);
+    if (manual) vtrack.requestFrame();
+  };
+
+  const parts = [];
+  let encodedMs = 0;          // how far the encoder has actually committed
+  let bytesOut = 0;
+
+  // Bitrate scaled to the frame — a fixed 8Mbps on a large canvas is a big
+  // part of why the encoder falls behind realtime in the first place.
+  const bitrate = clamp(Math.round(w * h * S.fps * 0.12), 1_500_000, 12_000_000);
+
+  recorder = new MediaRecorder(useStream, { mimeType: mime, videoBitsPerSecond: bitrate });
+  recorder.ondataavailable = async e => {
+    if (!e.data.size) return;
+    parts.push(e.data);
+    bytesOut += e.data.size;
+    try {
+      encodedMs = scanClusterTimecodes(new Uint8Array(await e.data.arrayBuffer()), encodedMs);
+    } catch (err) { /* progress read is best-effort */ }
+  };
+  recorder.onstop = async () => {
+    let blob = new Blob(parts, { type: "video/webm" });
+    const raw = new Uint8Array(await blob.arrayBuffer());
+
+    // Re-measure from the finished file — this catches the final chunks that
+    // arrive as part of stop() and is the truest number we have.
+    const finalMs = scanClusterTimecodes(raw, encodedMs);
+    const dur = finalMs > 0 ? finalMs / 1000 : (recordedSeconds || seconds);
+
+    // Stamp what the stream actually holds. Over-claiming makes players freeze
+    // on the last frame to fill the gap; under-claiming truncates.
+    const patched = patchWebmDuration(raw, dur);
+    if (patched) blob = new Blob([patched], { type: "video/webm" });
+    download(blob, `catsync_${S.fps}fps.webm`);
+
+    const lost = seconds - dur;
+    let note;
+    if (!patched) {
+      note = `WebM exported, but the duration header couldn't be written — some players will report the wrong length.`;
+    } else if (lost > 0.5) {
+      note = `WebM exported but it's ${lost.toFixed(1)}s short of the ${seconds.toFixed(1)}s audio — the encoder couldn't keep up at ${w}×${h}. Lower Scale or tighten the viewport and retry, or use the PNG sequence, which has no realtime limit.`;
+    } else {
+      note = `WebM exported — ${total} frames, ${dur.toFixed(2)}s, ${(bytesOut / 1048576).toFixed(1)}MB at ${w}×${h}. Key out the background in your editor.`;
+    }
+    msg("exp", patched && lost <= 0.5 ? "ok" : "work", note);
+    btn.disabled = false;
+  };
+
+  let stopped = false;      // playback done; still flushing
+  let timer = null;
+  let recStart = 0;         // wall clock at recorder.start()
+  let recordedSeconds = 0;  // what actually got captured
+  const TAIL_MS = 150;
+
+  const finish = () => {
+    if (stopped) return;
+    stopped = true;
+    a.pause();
+
+    // Keep pushing the final frame while the encoder flushes — going silent
+    // leaves recorded time with no frames in it, which players render as a
+    // held frame. Then wait for the encoder to actually catch up rather than
+    // stopping on a fixed timer: on a large canvas it can be seconds behind
+    // realtime, and stop() discards everything still queued.
+    const targetMs = (total * frameMs) - frameMs;
+    const hardDeadline = performance.now() + Math.max(20000, total * frameMs * 0.5);
+    let settled = 0, lastSeen = -1;
+
+    const drain = setInterval(() => {
+      try { if (recorder && recorder.state === "recording") recorder.requestData(); } catch (e) {}
+
+      const caughtUp = encodedMs >= targetMs;
+      // if progress stalls entirely, don't hang forever
+      if (encodedMs === lastSeen) settled++; else { settled = 0; lastSeen = encodedMs; }
+      const stalled = settled >= 8;                    // ~2s with no movement
+      const timedOut = performance.now() > hardDeadline;
+
+      if (!caughtUp && !stalled && !timedOut) {
+        const behind = Math.max(0, (targetMs - encodedMs) / 1000);
+        msg("exp", "work", `Encoder catching up — ${behind.toFixed(1)}s of video still to write…`);
+        return;
+      }
+
+      clearInterval(drain);
+      if (timer) clearInterval(timer);
+      recordedSeconds = encodedMs > 0 ? encodedMs / 1000 : (performance.now() - recStart) / 1000;
+      setTimeout(() => {
+        if (recorder && recorder.state !== "inactive") recorder.stop();
+      }, TAIL_MS);
+    }, 250);
+  };
+
+  msg("exp", "work", `Recording ${seconds.toFixed(1)}s in real time — don't switch tabs…`);
+
+  // prime a frame, start recording, and only then start playback, so nothing
+  // is lost in the gap between play() resolving and the recorder arming
+  drawIdx(S.mapping[0]);
+  recorder.start(1000);
+  recStart = performance.now();          // the container's t=0
+  await new Promise(r => setTimeout(r, 40));
+
+  a.currentTime = 0;
+  try { await a.play(); } catch (e) { finish(); msg("exp", "err", "Playback was blocked, so nothing could be recorded."); return; }
+  startLoop();
+
+  // pace off the wall clock: MediaRecorder timestamps by real elapsed time, so
+  // frames have to be emitted in real time for the duration to come out right
+  const t0 = performance.now();
+  let lastEmitted = -1;
+  timer = setInterval(() => {
+    const raw = Math.floor((performance.now() - t0) / frameMs);
+    if (stopped) {
+      // flushing: hold on the last frame but keep the stream alive
+      drawIdx(S.mapping[total - 1]);
+      return;
+    }
+    if (raw >= total) { drawIdx(S.mapping[total - 1]); finish(); return; }
+    if (raw !== lastEmitted) { lastEmitted = raw; drawIdx(S.mapping[raw]); }
+    if (raw % 30 === 0) msg("exp", "work", `Recording… ${Math.round((raw / total) * 100)}%`);
+  }, Math.max(4, frameMs / 2));
+
+  // The frame counter is authoritative — the mapping is derived from this same
+  // audio, so they land together. If `ended` fires early (a slightly short
+  // decode, say), stopping here would freeze the animation before the mapping
+  // is done, so only honour it once we're already at the end.
+  a.onended = () => {
+    const raw = Math.floor((performance.now() - t0) / frameMs);
+    if (raw >= total - 2) finish();
+    a.onended = null;
+  };
+}
+
+/* ══════════════════════════════════════════════════════════
+   7. demo assets — a throwaway sheet + clip, so the whole
+      pipeline is testable before any real art exists
+   ══════════════════════════════════════════════════════════ */
+
+function demoSheet() {
+  const CW = 48, CH = 64, N = 4;
+  const cv = document.createElement("canvas");
+  cv.width = CW * N; cv.height = CH;
+  const x = cv.getContext("2d");
+  x.fillStyle = "#ff00ff";
+  x.fillRect(0, 0, cv.width, cv.height);
+
+  const mouths = [[8, 2], [8, 4], [10, 10], [14, 6]];  // [width, height] per frame
+  // deliberate drift on cells 1-3, exactly like a real generated sheet comes
+  // back — so the onion skin and auto-align have something to actually fix
+  const jitter = [[0, 0], [2, -1], [-3, 2], [1, 3]];
+  for (let i = 0; i < N; i++) {
+    const ox = i * CW, jx = jitter[i][0], jy = jitter[i][1];
+    const px = (X, Y, W, H, col) => { x.fillStyle = col; x.fillRect(ox + X + jx, Y + jy, W, H); };
+
+    px(14, 30, 20, 26, "#6b6f76");                   // body
+    px(16, 56, 6, 6, "#5a5e64"); px(26, 56, 6, 6, "#5a5e64");  // feet
+    px(12, 10, 24, 22, "#8e939b");                   // head
+    px(12, 4, 6, 8, "#8e939b"); px(30, 4, 6, 8, "#8e939b");    // ears
+    px(14, 6, 2, 5, "#d98fa8");  px(32, 6, 2, 5, "#d98fa8");   // inner ears
+    px(14, 17, 20, 5, "#101216");                    // sunglasses
+    px(23, 18, 2, 3, "#101216");                     // bridge
+    px(22, 25, 4, 3, "#d98fa8");                     // nose
+
+    const [mw, mh] = mouths[i];                      // mouth: the only thing that changes
+    px(24 - (mw >> 1), 30, mw, mh, "#2a1a22");
+  }
+  return cv;
+}
+
+function demoAudio() {
+  const sr = 44100, dur = 4.0;
+  const n = Math.floor(sr * dur);
+  const data = new Float32Array(n);
+  // low room tone under everything — real recordings are never digitally
+  // silent, and without it the threshold slider appears to do nothing
+  for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * 0.005;
+  // syllable-ish bursts with a real pause in the middle, so the closed-mouth
+  // percentage means something
+  const beats = [];
+  let t = 0.15;
+  while (t < 1.7) { beats.push([t, 0.10 + Math.random() * 0.09, 0.35 + Math.random() * 0.5]); t += 0.16 + Math.random() * 0.10; }
+  t = 2.5;
+  while (t < 3.8) { beats.push([t, 0.10 + Math.random() * 0.09, 0.35 + Math.random() * 0.5]); t += 0.16 + Math.random() * 0.10; }
+
+  for (const [start, len, amp] of beats) {
+    const s0 = Math.floor(start * sr), s1 = Math.min(n, Math.floor((start + len) * sr));
+    const f = 120 + Math.random() * 90;
+    for (let i = s0; i < s1; i++) {
+      const p = (i - s0) / (s1 - s0);
+      const env = Math.sin(Math.PI * p);
+      data[i] += amp * env * (0.6 * Math.sin(2 * Math.PI * f * i / sr) + 0.4 * (Math.random() * 2 - 1) * 0.5);
+    }
+  }
+  return encodeWAV(data, sr);
+}
+
+function encodeWAV(samples, sr) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); str(8, "WAVE");
+  str(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, "data"); v.setUint32(40, samples.length * 2, true);
+  let o = 44;
+  for (let i = 0; i < samples.length; i++, o += 2) {
+    v.setInt16(o, clamp(samples[i], -1, 1) * 0x7FFF, true);
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+async function loadDemo() {
+  newSheet(demoSheet());
+  $("cols").value = 4; $("rows").value = 1;
+  // the demo sheet is a clean even grid on purpose — auto-detect would trim it
+  // down to the sprites and hide the drift the align panel is there to fix
+  evenGrid(); syncGridInputs();
+  $("dropSheet").classList.add("loaded");
+  $("dropSheet").innerHTML = "<strong>Sprite sheet</strong><br>demo sheet · 4×1";
+  sliceSheet();
+
+  const blob = demoAudio();
+  const url = URL.createObjectURL(blob);
+  $("dropAudio").classList.add("loaded");
+  $("dropAudio").innerHTML = "<strong>Audio</strong><br>demo clip · 4.0s";
+  await loadAudioBuffer(await blob.arrayBuffer(), url);
+  $("scale").value = 4; $("scaleV").textContent = "4×";
+  resizePreview();
+  drawFrameAt(0);
+}
+
+/* ══════════════════════════════════════════════════════════
+   8. messages + wiring
+   ══════════════════════════════════════════════════════════ */
+
+const MSG_EL = { exp: "expMsg", slice: "sliceMsg", input: "inputMsg" };
+
+function msg(which, kind, text) {
+  const el = $(MSG_EL[which] || "inputMsg");
+  el.className = "msg " + kind;
+  el.textContent = text;
+}
+function err(which, text) { msg(which, "err", text); }
+function clearMsg(which) {
+  const el = $(MSG_EL[which] || "inputMsg");
+  el.className = "msg"; el.textContent = "";
+}
+
+function updateReady() {
+  const ready = !!(S.mapping && S.keyed.length && S.audioBuffer);
+  $("expPng").disabled = !ready;
+  $("expWebm").disabled = !ready;
+  $("playBtn").disabled = !S.audioBuffer;
+}
+
+function wireDrop(el, accept, onFile) {
+  const input = document.createElement("input");
+  input.type = "file"; input.accept = accept; input.hidden = true;
+  document.body.append(input);
+  el.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => { if (input.files[0]) onFile(input.files[0]); });
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("over"); });
+  el.addEventListener("dragleave", () => el.classList.remove("over"));
+  el.addEventListener("drop", e => {
+    e.preventDefault(); el.classList.remove("over");
+    const f = e.dataTransfer.files[0];
+    if (f) onFile(f);
+  });
+}
+
+wireDrop($("dropSheet"), "image/*", file => {
+  const img = new Image();
+  img.onload = () => {
+    newSheet(img);
+    $("dropSheet").classList.add("loaded");
+    $("dropSheet").innerHTML = `<strong>Sprite sheet</strong><br>${file.name} · ${img.width}×${img.height}`;
+    // a fresh sheet is the one moment guessing is worth it — the grid it comes
+    // with is more often gutters-and-margins than a clean even divide
+    detectGrid(true);
+    updateReady();
+  };
+  img.onerror = () => err("input", "Couldn't read that image.");
+  img.src = URL.createObjectURL(file);
+});
+
+wireDrop($("dropAudio"), "audio/*", async file => {
+  if (rec) stopRecording();
+  $("dropAudio").classList.add("loaded");
+  $("dropAudio").innerHTML = `<strong>Audio</strong><br>${file.name}`;
+  S.takeBlob = null;                 // you already have this one as a file
+  $("saveTake").hidden = true;
+  $("recTime").textContent = "—";
+  const buf = await file.arrayBuffer();
+  await loadAudioBuffer(buf, URL.createObjectURL(file));
+  updateReady();
+});
+
+/* ── mic wiring ── */
+$("recBtn").addEventListener("click", startRecording);
+$("saveTake").addEventListener("click", () => {
+  if (!S.takeBlob) return;
+  const d = new Date();
+  const p = n => String(n).padStart(2, "0");
+  download(S.takeBlob, `catsync-take-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.wav`);
+});
+// a take lives in the tab and nowhere else until it's saved
+window.addEventListener("beforeunload", e => {
+  if (rec || S.takeBlob) { e.preventDefault(); e.returnValue = ""; }
+});
+
+/* ── align wiring ── */
+$("prevFrame").addEventListener("click", () => selectFrame(S.sel - 1));
+$("nextFrame").addEventListener("click", () => selectFrame(S.sel + 1));
+$("refMode").addEventListener("change", renderAlign);
+$("onionMode").addEventListener("change", renderAlign);
+$("onionOp").addEventListener("input", () => { $("onionOpV").textContent = $("onionOp").value; renderAlign(); });
+document.querySelectorAll(".nudge button[data-dx]").forEach(b => {
+  b.addEventListener("click", () => nudge(+b.dataset.dx, +b.dataset.dy));
+});
+$("moveAll").addEventListener("change", renderAlign);
+$("resetOne").addEventListener("click", () => { S.offsets[S.sel] = { dx: 0, dy: 0 }; afterOffsetChange(); });
+$("resetAll").addEventListener("click", () => { S.offsets = S.keyed.map(() => ({ dx: 0, dy: 0 })); afterOffsetChange(); });
+$("autoOne").addEventListener("click", () => autoAlignOne(S.sel, false));
+$("autoAll").addEventListener("click", autoAlignAll);
+
+/* drag the sprite directly — whole pixels only */
+(() => {
+  const cv = $("alignCv");
+  let dragging = false, sx = 0, sy = 0, startOffs = null;
+  cv.addEventListener("pointerdown", e => {
+    dragging = true; cv.classList.add("drag"); cv.setPointerCapture(e.pointerId);
+    sx = e.clientX; sy = e.clientY;
+    startOffs = S.offsets.map(o => ({ dx: o.dx, dy: o.dy }));   // drag from where we began
+    cv.focus();
+  });
+  cv.addEventListener("pointermove", e => {
+    if (!dragging || !startOffs) return;
+    const r = cv.getBoundingClientRect();
+    const px = (cv.width / r.width) / alignZoom;     // css px -> sprite px
+    const ddx = Math.round((e.clientX - sx) * px);
+    const ddy = Math.round((e.clientY - sy) * px);
+    const all = $("moveAll").checked;
+    S.offsets = startOffs.map((o, i) =>
+      (all || i === S.sel)
+        ? clampOffset({ dx: o.dx + ddx, dy: o.dy + ddy })
+        : { dx: o.dx, dy: o.dy });
+    afterOffsetChange();
+  });
+  const end = e => { if (dragging) { dragging = false; cv.classList.remove("drag"); } };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+
+  cv.addEventListener("keydown", e => {
+    // on a big sprite a 1px jump is invisible, so scale the coarse step
+    const big = S.keyed.length ? Math.max(S.keyed[0].width, S.keyed[0].height) : 64;
+    const step = e.shiftKey ? Math.max(4, Math.round(big / 64)) : 1;
+    const map = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+    if (map[e.key]) { e.preventDefault(); nudge(map[e.key][0] * step, map[e.key][1] * step); }
+  });
+})();
+
+/* ── viewport wiring ── */
+["cropX", "cropY", "cropW", "cropH"].forEach(id =>
+  $(id).addEventListener("input", readCropInputs));
+$("lockView").addEventListener("change", () => {
+  resizePreview();
+  drawFrameAt(currentFrame());
+});
+$("fitCrop").addEventListener("click", () => fitCropToContent(1));
+$("fullCrop").addEventListener("click", () => {
+  S.crop = { x: 0, y: 0, w: S.cellW, h: S.cellH };
+  syncCropInputs(); resizePreview(); renderAlign(); drawFrameAt(currentFrame());
+});
+
+/* ── slicing wiring ── */
+// cols / rows / gutter change how much room there is, so the cells refit;
+// cell size and origin are taken exactly as typed.
+["cols", "rows", "gGX", "gGY"].forEach(id =>
+  $(id).addEventListener("input", () => readGridInputs(true)));
+["gW", "gH", "gX", "gY"].forEach(id =>
+  $(id).addEventListener("input", () => readGridInputs(false)));
+$("detectGrid").addEventListener("click", () => detectGrid(false));
+$("evenGrid").addEventListener("click", () => {
+  if (!S.sheetImg) return;
+  evenGrid(); syncGridInputs(); sliceSheet(); updateReady();
+});
+
+/* Drag the grid on the sheet. Re-slicing every pointermove would re-key every
+   cell — a few million pixels — so the overlay is redrawn live and the actual
+   slice is coalesced to one per frame. */
+(() => {
+  const cv = $("sliceCv");
+  let mode = null, sx = 0, sy = 0, start = null, pending = 0;
+
+  const toSheet = e => {
+    const r = cv.getBoundingClientRect();
+    const W = S.sheetImg ? S.sheetImg.width : 1;
+    const k = W / r.width;                       // css px -> sheet px
+    return { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k, k };
+  };
+  const schedule = () => {
+    if (pending) return;
+    pending = requestAnimationFrame(() => { pending = 0; sliceSheet(); updateReady(); });
+  };
+
+  cv.addEventListener("pointerdown", e => {
+    if (!S.grid || !S.sheetImg) return;
+    const p = toSheet(e), g = S.grid, hs = handleSize();
+    const h0 = cellRect(g, 0, 0);
+    mode = (Math.abs(p.x - (h0.x + h0.w)) <= hs && Math.abs(p.y - (h0.y + h0.h)) <= hs)
+      ? "resize" : "move";
+    cv.classList.add(mode === "resize" ? "resize" : "drag");
+    cv.setPointerCapture(e.pointerId);
+    sx = p.x; sy = p.y;
+    start = { ...g };
+    cv.focus();
+  });
+
+  cv.addEventListener("pointermove", e => {
+    if (!mode || !start) return;
+    const p = toSheet(e), g = S.grid;
+    const W = S.sheetImg.width, H = S.sheetImg.height;
+    if (mode === "resize") {
+      g.cw = clamp(Math.round(start.cw + (p.x - sx)), 1, W * 2);
+      g.ch = clamp(Math.round(start.ch + (p.y - sy)), 1, H * 2);
+    } else {
+      g.ox = clamp(Math.round(start.ox + (p.x - sx)), -g.cw, W - 1);
+      g.oy = clamp(Math.round(start.oy + (p.y - sy)), -g.ch, H - 1);
+    }
+    syncGridInputs();
+    drawSliceView();
+    schedule();
+  });
+
+  const end = () => {
+    if (!mode) return;
+    mode = null; cv.classList.remove("drag", "resize");
+    sliceSheet(); updateReady();
+  };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+
+  cv.addEventListener("keydown", e => {
+    if (!S.grid) return;
+    const map = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+    if (!map[e.key]) return;
+    e.preventDefault();
+    const step = e.shiftKey ? 8 : 1;
+    const g = S.grid, W = S.sheetImg.width, H = S.sheetImg.height;
+    g.ox = clamp(g.ox + map[e.key][0] * step, -g.cw, W - 1);
+    g.oy = clamp(g.oy + map[e.key][1] * step, -g.ch, H - 1);
+    syncGridInputs(); sliceSheet(); updateReady();
+  });
+})();
+
+$("key").addEventListener("input", applyKey);
+$("tol").addEventListener("input", () => { $("tolV").textContent = $("tol").value; applyKey(); });
+$("feather").addEventListener("input", () => { $("featherV").textContent = $("feather").value; applyKey(); });
+$("despill").addEventListener("change", applyKey);
+$("scale").addEventListener("input", () => {
+  $("scaleV").textContent = $("scale").value + "×";
+  resizePreview(); drawFrameAt(currentFrame());
+});
+$("checker").addEventListener("change", () => $("preview").classList.toggle("checker", $("checker").checked));
+$("fitView").addEventListener("change", () => $("preview").classList.toggle("fit", $("fitView").checked));
+$("fps").addEventListener("input", () => { $("fpsV").textContent = $("fps").value; analyze(); });
+$("thr").addEventListener("input", () => { $("thrV").textContent = $("thr").value; remap(); });
+$("hold").addEventListener("input", () => { $("holdV").textContent = $("hold").value; remap(); });
+$("demoBtn").addEventListener("click", () => { loadDemo().then(updateReady); });
+$("expPng").addEventListener("click", exportPNG);
+$("expWebm").addEventListener("click", exportWebM);
+
+$("playBtn").addEventListener("click", () => {
+  const a = $("audioEl");
+  if (a.paused) { a.play(); $("playBtn").textContent = "Pause"; startLoop(); }
+  else { a.pause(); $("playBtn").textContent = "Play"; stopLoop(); }
+});
+$("audioEl").addEventListener("ended", () => { $("playBtn").textContent = "Play"; stopLoop(); });
+
+$("wave").addEventListener("click", e => {
+  if (!S.audioBuffer) return;
+  const r = $("wave").getBoundingClientRect();
+  $("audioEl").currentTime = ((e.clientX - r.left) / r.width) * S.audioBuffer.duration;
+  drawWave(); drawFrameAt(currentFrame());
+});
+
+window.addEventListener("resize", drawWave);
+drawWave();
+</script>
+</body>
+</html>
