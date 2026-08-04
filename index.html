@@ -267,9 +267,13 @@
         <label style="flex:0 0 30px;text-align:right">H</label><input type="number" id="cropH" value="0" min="1">
       </div>
       <div class="offreadout" id="cropLbl">&mdash;</div>
+      <div class="checkrow" style="margin-top:8px">
+        <input type="checkbox" id="lockView">
+        <label for="lockView" style="flex:none">Lock the cut</label>
+      </div>
+      <div class="hint" style="margin-top:-2px">While unlocked the preview shows the <em>whole</em> frame with the viewport drawn as a guide, so nothing is hidden while you're still moving sprites around. Lock it to see the actual cut. <strong>Exports always apply the viewport either way.</strong></div>
       <button id="fitCrop" style="margin-top:8px">Fit to content</button>
       <button id="fullCrop">Reset to full cell</button>
-      <div class="hint">Exports this window onto the cell instead of the whole thing &mdash; trim dead space or frame head&#8209;and&#8209;shoulders. Outlined in teal on the align canvas.</div>
     </div>
 
     <div class="panel">
@@ -674,10 +678,23 @@ function remap() {
    4. preview + waveform
    ══════════════════════════════════════════════════════════ */
 
+/* What gets exported — always the viewport. */
 function spriteSize() {
   if (!S.keyed.length || !S.crop) return [0, 0];
   const s = parseInt($("scale").value, 10);
   return [S.crop.w * s, S.crop.h * s];
+}
+
+const cutLocked = () => $("lockView").checked;
+
+/* What the preview shows. Until the cut is locked it's the whole frame, so
+   moving a sprite that currently falls outside the viewport is still visible
+   instead of being silently clipped away mid-edit. */
+function previewSize() {
+  if (!S.keyed.length || !S.crop) return [0, 0];
+  if (cutLocked()) return spriteSize();
+  const s = parseInt($("scale").value, 10);
+  return [S.cellW * s, S.cellH * s];
 }
 
 /* ── viewport / crop ─────────────────────────────────────
@@ -741,12 +758,14 @@ function fitCropToContent(pad) {
 function resizePreview() {
   const [w, h] = spriteSize();
   if (!w) return;
+  const [pw, ph] = previewSize();
   const cv = $("preview");
-  cv.width = w; cv.height = h;
+  cv.width = pw; cv.height = ph;
   cv.hidden = false;
   $("emptyNote").style.display = "none";
   cv.classList.toggle("checker", $("checker").checked);
   cv.classList.toggle("fit", $("fitView").checked);
+  // always report the exported size, never the preview's
   $("stOut").textContent = `${w}×${h}`;
 }
 
@@ -760,7 +779,25 @@ function drawFrameAt(f) {
   const i = clamp(idx, 0, S.keyed.length - 1);
   const spr = S.keyed[i];
   const s = parseInt($("scale").value, 10), o = off(i), c = S.crop;
-  x.drawImage(spr, (o.dx - c.x) * s, (o.dy - c.y) * s, spr.width * s, spr.height * s);
+  const locked = cutLocked();
+  const cx = locked ? c.x : 0, cy = locked ? c.y : 0;
+  x.drawImage(spr, (o.dx - cx) * s, (o.dy - cy) * s, spr.width * s, spr.height * s);
+
+  // unlocked: the viewport is only a guide, so show where the cut will fall
+  if (!locked && (c.x !== 0 || c.y !== 0 || c.w !== S.cellW || c.h !== S.cellH)) {
+    const rx = c.x * s, ry = c.y * s, rw = c.w * s, rh = c.h * s;
+    x.save();
+    x.beginPath();
+    x.rect(0, 0, cv.width, cv.height);
+    x.rect(rx, ry, rw, rh);
+    x.fillStyle = "#0b0d1099";
+    x.fill("evenodd");
+    x.restore();
+    x.strokeStyle = "#4fd1c5";
+    x.lineWidth = Math.max(1, Math.round(s / 2));
+    x.strokeRect(rx + .5, ry + .5, rw - 1, rh - 1);
+  }
+
   $("frameLbl").textContent = S.mapping ? `frame ${f} · sprite ${idx}` : "";
 }
 
@@ -1761,6 +1798,10 @@ $("autoAll").addEventListener("click", autoAlignAll);
 /* ── viewport wiring ── */
 ["cropX", "cropY", "cropW", "cropH"].forEach(id =>
   $(id).addEventListener("input", readCropInputs));
+$("lockView").addEventListener("change", () => {
+  resizePreview();
+  drawFrameAt(currentFrame());
+});
 $("fitCrop").addEventListener("click", () => fitCropToContent(1));
 $("fullCrop").addEventListener("click", () => {
   S.crop = { x: 0, y: 0, w: S.cellW, h: S.cellH };
