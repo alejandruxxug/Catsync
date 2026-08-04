@@ -882,45 +882,60 @@ function renderAlign() {
 
   const cur = S.keyed[S.sel];
   const sw = cur.width, sh = cur.height;
-  alignZoom = Math.max(1, Math.floor(Math.min(360 / sw, 230 / sh))) || 1;
+
+  // Draw a margin around the cell. Without it a nudged sprite leaves the
+  // canvas and simply isn't visible any more.
+  const pX = padX(), pY = padY();
+  const totalW = sw + pX * 2, totalH = sh + pY * 2;
+  alignZoom = Math.max(1, Math.floor(Math.min(360 / totalW, 260 / totalH))) || 1;
 
   cv.hidden = false;
   $("alignEmpty").style.display = "none";
-  cv.width = sw * alignZoom;
-  cv.height = sh * alignZoom;
+  cv.width = totalW * alignZoom;
+  cv.height = totalH * alignZoom;
 
   const x = cv.getContext("2d");
   x.imageSmoothingEnabled = false;
-  x.fillStyle = "#15181d";
+  x.fillStyle = "#0e1014";
   x.fillRect(0, 0, cv.width, cv.height);
+
+  // the cell itself, so it's obvious how far a sprite has been pushed
+  const cellX = pX * alignZoom, cellY = pY * alignZoom;
+  const cellW = sw * alignZoom, cellH = sh * alignZoom;
+  x.fillStyle = "#15181d";
+  x.fillRect(cellX, cellY, cellW, cellH);
 
   const ri = refIndexFor(S.sel);
   const o = off(S.sel);
   const mode = $("onionMode").value;
   const opa = parseInt($("onionOp").value, 10) / 100;
 
-  if (ri >= 0) {
-    const ro = off(ri);
-    x.globalAlpha = mode === "diff" ? 1 : opa;
-    x.drawImage(S.keyed[ri], ro.dx * alignZoom, ro.dy * alignZoom, cv.width, cv.height);
+  const place = (img, oo, alpha) => {
+    x.globalAlpha = alpha;
+    x.drawImage(img, cellX + oo.dx * alignZoom, cellY + oo.dy * alignZoom, cellW, cellH);
     x.globalAlpha = 1;
-  }
+  };
 
+  if (ri >= 0) place(S.keyed[ri], off(ri), mode === "diff" ? 1 : opa);
   if (mode === "diff" && ri >= 0) x.globalCompositeOperation = "difference";
-  x.drawImage(cur, o.dx * alignZoom, o.dy * alignZoom, cv.width, cv.height);
+  place(cur, o, 1);
   x.globalCompositeOperation = "source-over";
 
   // centre guides — easier to spot a body that drifted sideways
   x.strokeStyle = "#ffffff14"; x.lineWidth = 1;
   x.beginPath();
-  x.moveTo(cv.width / 2, 0); x.lineTo(cv.width / 2, cv.height);
-  x.moveTo(0, cv.height / 2); x.lineTo(cv.width, cv.height / 2);
+  x.moveTo(cellX + cellW / 2, 0); x.lineTo(cellX + cellW / 2, cv.height);
+  x.moveTo(0, cellY + cellH / 2); x.lineTo(cv.width, cellY + cellH / 2);
   x.stroke();
 
-  // the exported viewport: dim what falls outside it
+  // cell boundary
+  x.strokeStyle = "#ffffff22"; x.lineWidth = 1;
+  x.strokeRect(cellX + .5, cellY + .5, cellW - 1, cellH - 1);
+
+  // the exported viewport — always shown, so you can see the cut you'll get
   const c = S.crop;
-  if (c && (c.x !== 0 || c.y !== 0 || c.w !== sw || c.h !== sh)) {
-    const rx = c.x * alignZoom, ry = c.y * alignZoom,
+  if (c) {
+    const rx = cellX + c.x * alignZoom, ry = cellY + c.y * alignZoom,
           rw = c.w * alignZoom, rh = c.h * alignZoom;
     x.save();
     x.beginPath();
@@ -942,10 +957,16 @@ function renderAlign() {
 
 /* Keep a frame reachable — dragged far enough it leaves the cell entirely and
    there's nothing left on screen to grab. */
+const PAD_FRAC = 0.5;                 // margin drawn around the cell, per side
+const padX = () => Math.round((S.cellW || 64) * PAD_FRAC);
+const padY = () => Math.round((S.cellH || 64) * PAD_FRAC);
+
+/* Clamp to the margin the align canvas actually draws. Allowing a full cell of
+   travel let a sprite walk clean out of the visible area with nothing left to
+   grab or even look at. */
 function clampOffset(o) {
-  const w = S.cellW || 64, h = S.cellH || 64;
-  o.dx = clamp(o.dx, -w, w);
-  o.dy = clamp(o.dy, -h, h);
+  o.dx = clamp(o.dx, -padX(), padX());
+  o.dy = clamp(o.dy, -padY(), padY());
   return o;
 }
 
